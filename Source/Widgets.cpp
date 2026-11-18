@@ -974,3 +974,62 @@ void ModalOverlay::paint (juce::Graphics& g)
     as.append (text, ui::font (13.f), ui::fg);
     as.draw (g, juce::Rectangle<float> (bx.getX() + 30.f, y, bx.getWidth() - 60.f, bx.getBottom() - y - 70.f));
 }
+
+// ---------------------------------------------------------------------------------------------
+//  ZoomBar
+// ---------------------------------------------------------------------------------------------
+juce::Rectangle<float> ZoomBar::track() const
+{
+    return { 50.f, (float) getHeight() * 0.5f - 3.f, (float) getWidth() - 50.f - 52.f, 6.f };
+}
+
+void ZoomBar::paint (juce::Graphics& g)
+{
+    ui::caption (g, "ZOOM", { 0.f, 0.f, 46.f, (float) getHeight() }, ui::muted, 9.5f, juce::Justification::centredLeft, 0.3f);
+
+    const auto t = track();
+    const float n = (value - kMin) / (kMax - kMin);
+    const float x = t.getX() + n * t.getWidth();
+    const float x100 = t.getX() + (1.f - kMin) / (kMax - kMin) * t.getWidth();
+
+    g.setColour (juce::Colour (0xff1a2631));
+    g.fillRoundedRectangle (t, 3.f);
+    g.setColour (ui::cyan.withAlpha (0.55f));
+    g.fillRoundedRectangle (t.withRight (x), 3.f);
+    g.setColour (ui::silver.withAlpha (0.5f));                       // tick at 100 %
+    g.fillRect (x100 - 0.5f, t.getY() - 4.f, 1.f, t.getHeight() + 8.f);
+
+    const float cy = t.getCentreY();
+    g.setColour (ui::cyan.withAlpha (0.25f));
+    g.fillEllipse (x - 10.f, cy - 10.f, 20.f, 20.f);
+    g.setColour (ui::cyan);
+    g.fillEllipse (x - 6.f, cy - 6.f, 12.f, 12.f);
+
+    g.setColour (ui::fg);
+    g.setFont (ui::mono (12.f));
+    g.drawText (juce::String (juce::roundToInt (value * 100.f)) + "%",
+                getLocalBounds().removeFromRight (50), juce::Justification::centredRight);
+}
+
+void ZoomBar::change (float z)
+{
+    z = juce::jlimit (kMin, kMax, std::round (z * 20.f) / 20.f);      // 5 % steps
+    if (z == value) return;
+    value = z;
+    repaint();
+    if (onChange) onChange (z);
+}
+
+void ZoomBar::mouseDown (const juce::MouseEvent& e)
+{
+    const auto t = track();
+    change (kMin + juce::jlimit (0.f, 1.f, (e.position.x - t.getX()) / t.getWidth()) * (kMax - kMin));
+    startValue = value;
+}
+
+void ZoomBar::mouseDrag (const juce::MouseEvent& e)
+{
+    // measured in screen pixels (300 px = the whole range), so resizing the window under the cursor can't feed back
+    const float dx = (float) (e.getScreenX() - e.getMouseDownScreenX());
+    change (startValue + dx / 300.f * (kMax - kMin));
+}

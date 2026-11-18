@@ -23,7 +23,7 @@ TB303Editor::TB303Editor (TB303Processor& p)
     };
 
     setResizable (true, true);
-    setResizeLimits (660, 581, 1760, 1549);
+    setResizeLimits (550, 484, 2200, 1936);                 // 50 % .. 200 %
     getConstrainer()->setFixedAspectRatio ((double) kW / (double) kH);
 
     content.addAndMakeVisible (roll);
@@ -73,6 +73,11 @@ TB303Editor::TB303Editor (TB303Processor& p)
     redoBtn.onClick     = [this] { proc.redoTweak(); refreshUndo(); };
     closeBtn.onClick    = [this] { setFocus (fNone); };
 
+    content.addAndMakeVisible (zoomBar);
+    content.addAndMakeVisible (fitBtn);
+    zoomBar.onChange = [this] (float z) { applyZoom (z); };
+    fitBtn.onClick   = [this] { fitToScreen(); };
+
     for (auto* b : { &generateBtn, &previousBtn, &nextBtn, &loadBtn, &downloadBtn, &folderBtn, &undoBtn, &redoBtn, &closeBtn })
         content.addAndMakeVisible (*b);
     closeBtn.setVisible (false);
@@ -82,7 +87,11 @@ TB303Editor::TB303Editor (TB303Processor& p)
 
     setWantsKeyboardFocus (true);
     refreshUndo();
-    setSize (935, 823);                                   // last: resized() needs every child to exist
+    {
+        const float z = juce::jlimit (ZoomBar::kMin, ZoomBar::kMax, proc.editorZoom.load());
+        setSize (juce::roundToInt ((float) kW * z), juce::roundToInt ((float) kH * z));
+    }
+    //                                 // last: resized() needs every child to exist
     startTimerHz (60);
 }
 
@@ -127,6 +136,14 @@ bool TB303Editor::keyPressed (const juce::KeyPress& k)
         if (modal.isVisible()) modal.close();
         else if (focus != fNone) setFocus (fNone);
         return true;
+    }
+    if (k.getModifiers().isCommandDown())                           // Cmd/Ctrl  +  -  0
+    {
+        const auto c = k.getTextCharacter();
+        const float z = (float) getWidth() / (float) kW;
+        if (c == '+' || c == '=') { applyZoom (z + 0.1f); return true; }
+        if (c == '-' || c == '_') { applyZoom (z - 0.1f); return true; }
+        if (c == '0')             { applyZoom (1.0f);     return true; }
     }
     return false;
 }
@@ -222,6 +239,8 @@ void TB303Editor::layoutAll()
     using R = juce::Rectangle<int>;
     undoBtn.setBounds (896, 10, 92, 38);
     redoBtn.setBounds (990, 10, 92, 38);
+    zoomBar.setBounds (560, 12, 256, 34);
+    fitBtn.setBounds (822, 10, 68, 38);
     rollR = { 20, 58, 1060, 132 };
     roll.setBounds (rollR);
     infoR = { 22, 196, 1056, 18 };
@@ -438,10 +457,37 @@ void TB303Editor::paintContent (juce::Graphics& g)
         ui::caption (g, "LINKED LFOS", linkedLabel.toFloat(), ui::muted, 9.5f, juce::Justification::centredLeft, 0.3f);
 }
 
+void TB303Editor::applyZoom (float z)
+{
+    z = juce::jlimit (ZoomBar::kMin, ZoomBar::kMax, z);
+    setSize (juce::roundToInt ((float) kW * z), juce::roundToInt ((float) kH * z));
+}
+
+// largest zoom whose window still fits on the screen this editor is on (room left for the title bar / host chrome)
+void TB303Editor::fitToScreen()
+{
+    const auto* d = juce::Desktop::getInstance().getDisplays().getDisplayForRect (getScreenBounds());
+    if (d == nullptr) return;
+    const auto area = d->userArea;
+    const float z = juce::jmin ((float) (area.getWidth() - 24) / (float) kW, (float) (area.getHeight() - 96) / (float) kH);
+    applyZoom (std::floor (juce::jlimit (ZoomBar::kMin, ZoomBar::kMax, z) * 100.f) / 100.f);
+
+    if (juce::JUCEApplicationBase::isStandaloneApp())               // keep the standalone window on screen
+        juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<juce::Component> (this), area]
+        {
+            if (sp != nullptr)
+                if (auto* tl = sp->getTopLevelComponent())
+                    tl->setBounds (tl->getBounds().constrainedWithin (area));
+        });
+}
+
 void TB303Editor::resized()
 {
     content.setBounds (0, 0, kW, kH);
-    content.setTransform (juce::AffineTransform::scale ((float) getWidth() / (float) kW));
+    const float z = (float) getWidth() / (float) kW;
+    content.setTransform (juce::AffineTransform::scale (z));
+    zoomBar.setZoom (z);
+    proc.editorZoom = z;
     layoutAll();
 }
 

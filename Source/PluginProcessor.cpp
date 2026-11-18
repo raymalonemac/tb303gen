@@ -790,6 +790,7 @@ void TB303Processor::getStateInformation (juce::MemoryBlock& dest)
     state.setProperty ("lastRoot", lastRoot.load(), nullptr);
     state.setProperty ("lastScale", lastScale.load(), nullptr);
     state.setProperty ("loadedName", loadedName, nullptr);
+    state.setProperty ("editorZoom", (double) editorZoom.load(), nullptr);
     state.setProperty ("lfoMasks", juce::String ((juce::int64) lfoMask[0].load()) + "," + juce::String ((juce::int64) lfoMask[1].load()) + ","
                                    + juce::String ((juce::int64) lfoMask[2].load()) + "," + juce::String ((juce::int64) lfoMask[3].load()), nullptr);
     if (snap.hasSeed)                                    // so the tweaker still works after reopening a project
@@ -818,6 +819,7 @@ void TB303Processor::setStateInformation (const void* data, int size)
     const int root = juce::jlimit (36, 47, (int) vt.getProperty ("lastRoot", 36));
     const int scale = juce::jlimit (0, (int) tb::scales().size() - 1, (int) vt.getProperty ("lastScale", 0));
     loadedName = vt.getProperty ("loadedName").toString();
+    editorZoom = (float) juce::jlimit (0.5, 2.0, (double) vt.getProperty ("editorZoom", 0.85));
 
     if (tokens.size() >= len)
     {

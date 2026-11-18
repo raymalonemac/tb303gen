@@ -108,6 +108,23 @@ private:
     juce::String captionText;
 };
 
+// zoom slider, 50..200 %. Drags are measured in screen pixels, so the slider stays steady while the window it lives in resizes.
+class ZoomBar : public juce::Component
+{
+public:
+    static constexpr float kMin = 0.5f, kMax = 2.0f;
+    std::function<void (float)> onChange;
+    void setZoom (float z) { z = juce::jlimit (kMin, kMax, z); if (z != value) { value = z; repaint(); } }   // no callback
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override { change (1.0f); }
+private:
+    juce::Rectangle<float> track() const;
+    void change (float z);
+    float value = 0.85f, startValue = 0.85f;
+};
+
 // ---------------------------------------------------------------------------------------------
 //  parameter plumbing shared by the pads and faders
 // ---------------------------------------------------------------------------------------------
@@ -263,6 +280,8 @@ private:
     void infoText (juce::AttributedString& out) const;
     std::vector<int> linkedLfos (int panelFocus) const;
     void setupCombo (juce::ComboBox&, const char* paramId);
+    void applyZoom (float z);
+    void fitToScreen();
 
     using ComboAtt  = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using ButtonAtt = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -300,6 +319,8 @@ private:
             synthBtn    { "BASS SYNTH", ui::green },
             closeBtn    { "", ui::silver, NButton::cross };
     LockButton lockBtn { "BPM" };
+    ZoomBar zoomBar;
+    NButton fitBtn { "FIT", ui::cyan };
     ModalOverlay modal;
     std::unique_ptr<juce::FileChooser> chooser;
 

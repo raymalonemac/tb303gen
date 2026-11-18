@@ -90,6 +90,7 @@ public:
     std::atomic<bool>   uiHasPending { false };          // a new pattern is waiting for the bar line
     std::atomic<bool>   uiPlaying { false };
     std::array<std::atomic<float>, 4> uiLfoVal {}, uiLfoPhase {};
+    std::atomic<float> editorZoom { 0.85f };           // editor size / 1100 px, remembered with the project
 
 private:
     // "Generate" is a momentary host parameter: map it in Ableton (Configure / MIDI map) to a pad or key.
