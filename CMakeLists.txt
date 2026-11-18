@@ -22,11 +22,17 @@ else()
     set(TB303_COPY TRUE)
 endif()
 
+if(APPLE)
+    set(TB303_FORMATS VST3 AU Standalone)
+else()
+    set(TB303_FORMATS VST3 Standalone)      # Audio Units only exist on macOS
+endif()
+
 juce_add_plugin(TB303Gen
     COMPANY_NAME "TB303Gen"
     PLUGIN_MANUFACTURER_CODE Tbgn
     PLUGIN_CODE Tb30
-    FORMATS VST3 AU Standalone
+    FORMATS ${TB303_FORMATS}
     PRODUCT_NAME "TB-303 Gen"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
