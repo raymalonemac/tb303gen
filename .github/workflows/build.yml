@@ -1,0 +1,27 @@
+name: Build universal plugin
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  mac:
+    runs-on: macos-14            # Apple Silicon runner; builds arm64 + x86_64 in one binary
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Check it is universal
+        run: lipo -archs "build/TB303Gen_artefacts/Release/VST3/TB-303 Gen.vst3/Contents/MacOS/TB-303 Gen"
+      - name: Package
+        run: |
+          mkdir out
+          cp -R "build/TB303Gen_artefacts/Release/VST3/TB-303 Gen.vst3" out/
+          cp -R "build/TB303Gen_artefacts/Release/AU/TB-303 Gen.component" out/
+          cp -R "build/TB303Gen_artefacts/Release/Standalone/TB-303 Gen.app" out/
+          cd out && zip -ry ../TB303Gen-universal.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TB303Gen-universal
+          path: TB303Gen-universal.zip
