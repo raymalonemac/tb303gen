@@ -5,7 +5,7 @@ on:
 
 jobs:
   mac:
-    runs-on: macos-14            # Apple Silicon runner; builds arm64 + x86_64 in one binary
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - name: Configure
