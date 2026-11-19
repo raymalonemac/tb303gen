@@ -802,12 +802,17 @@ void TB303Processor::getStateInformation (juce::MemoryBlock& dest)
 
 void TB303Processor::setStateInformation (const void* data, int size)
 {
+    if (wrapperType == wrapperType_Standalone)           // the standalone app always starts fresh (it would otherwise reload its last session)
+        return;
+
     auto xml = getXmlFromBinary (data, size);
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
         return;
 
     const auto vt = juce::ValueTree::fromXml (*xml);
     apvts.replaceState (vt);
+    if (auto* run = apvts.getParameter ("run"))          // a project always opens stopped
+        run->setValueNotifyingHost (0.f);
 
     const auto masks = juce::StringArray::fromTokens (vt.getProperty ("lfoMasks").toString(), ",", "");
     if (masks.size() == 4)

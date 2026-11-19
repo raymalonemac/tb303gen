@@ -87,8 +87,11 @@ TB303Editor::TB303Editor (TB303Processor& p)
 
     setWantsKeyboardFocus (true);
     refreshUndo();
-    {
-        const float z = juce::jlimit (ZoomBar::kMin, ZoomBar::kMax, proc.editorZoom.load());
+    {   // opens already fitted to the main screen
+        float z = 0.85f;
+        if (const auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+            z = juce::jmin ((float) (d->userArea.getWidth() - 24) / (float) kW, (float) (d->userArea.getHeight() - 96) / (float) kH);
+        z = std::floor (juce::jlimit (ZoomBar::kMin, ZoomBar::kMax, z) * 100.f) / 100.f;
         setSize (juce::roundToInt ((float) kW * z), juce::roundToInt ((float) kH * z));
     }
     //                                 // last: resized() needs every child to exist
