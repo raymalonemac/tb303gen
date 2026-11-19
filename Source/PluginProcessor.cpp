@@ -38,8 +38,8 @@ tb::Step decodeStep (int v)
 }
 
 const char* const kGenIds[6] = { "notes", "accents", "slides", "octave", "variation", "bars" };
-const double kRateDefault[4] = { 2, 3, 5, 1 };
-const float  kDepthDefault[4] = { 0.35f, 0.30f, 0.50f, 0.50f };
+const double kRateDefault[4] = { 0, 3, 5, 1 };     // 8 bar, 1 bar, 1/4, 4 bar
+const float  kDepthDefault[4] = { 0.03f, 1.00f, 0.50f, 0.50f };
 } // namespace
 
 juce::AudioProcessorValueTreeState::ParameterLayout TB303Processor::createLayout()
@@ -58,12 +58,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout TB303Processor::createLayout
 
     p.push_back (std::make_unique<AudioParameterBool> (ParameterID { "generate", 1 }, "Generate", false));
     p.push_back (pct ("notes",     "Notes",     0.75f));
-    p.push_back (pct ("accents",   "Accents",   0.30f));
-    p.push_back (pct ("slides",    "Slides",    0.25f));
-    p.push_back (pct ("octave",    "Octave",    0.14f));
-    p.push_back (pct ("variation", "Variation", 0.12f));
+    p.push_back (pct ("accents",   "Accents",   0.45f));
+    p.push_back (pct ("slides",    "Slides",    0.31f));
+    p.push_back (pct ("octave",    "Octave",    0.00f));
+    p.push_back (pct ("variation", "Variation", 0.40f));
     p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "bars", 1 }, "Bars",
-                    NormalisableRange<float> (4.f, 64.f, 4.f), 16.f,
+                    NormalisableRange<float> (4.f, 64.f, 4.f), 8.f,
                     AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return String (roundToInt (v)); })));
 
     p.push_back (std::make_unique<AudioParameterChoice> (ParameterID { "root", 1 },  "Root",  rootChoices(),  0));
@@ -77,17 +77,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout TB303Processor::createLayout
         [] (float s, float e, float n) { return s * std::pow (e / s, n); },
         [] (float s, float e, float v) { return std::log (jmax (s, v) / s) / std::log (e / s); },
         [] (float s, float e, float v) { return jlimit (s, e, v); });
-    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "cutoff", 1 }, "Cutoff", cutRange, 2221.f,
+    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "cutoff", 1 }, "Cutoff", cutRange, 1396.f,
                     AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return String (roundToInt (v)) + " Hz"; })));
-    p.push_back (pct ("reso",   "Resonance", 1.0f));
-    p.push_back (pct ("envmod", "Env mod",   0.52f));
+    p.push_back (pct ("reso",   "Resonance", 0.92f));
+    p.push_back (pct ("envmod", "Env mod",   0.64f));
     p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "decay", 1 }, "Decay",
-                    NormalisableRange<float> (0.05f, 1.5f, 0.001f), 0.57f,
+                    NormalisableRange<float> (0.05f, 1.5f, 0.001f), 1.32f,
                     AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return String (v, 2) + " s"; })));
-    p.push_back (pct ("volume", "Volume", 0.08f));
+    p.push_back (pct ("volume", "Volume", 0.15f));
 
     p.push_back (std::make_unique<AudioParameterBool>  (ParameterID { "drums", 1 }, "Drums", true));
-    p.push_back (pct ("kickvol", "Kick volume", 0.64f));
+    p.push_back (pct ("kickvol", "Kick volume", 0.71f));
     p.push_back (pct ("hatvol",  "Hat volume",  1.0f));
 
     p.push_back (std::make_unique<AudioParameterBool>  (ParameterID { "run", 1 },   "Run (no host)", false));
