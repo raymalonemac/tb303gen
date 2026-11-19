@@ -260,6 +260,8 @@ public:
     ~TB303Editor() override;
     void paint (juce::Graphics&) override;
     void resized() override;
+    void parentHierarchyChanged() override { relayout(); }
+    void visibilityChanged() override { relayout(); }
     bool keyPressed (const juce::KeyPress&) override;
 
 private:
@@ -281,6 +283,8 @@ private:
     std::vector<int> linkedLfos (int panelFocus) const;
     void setupCombo (juce::ComboBox&, const char* paramId);
     void applyZoom (float z);
+    void relayout() { if (lfos[3] != nullptr) { resized(); repaint(); } }   // some hosts/standalone only give the window its final size after we are shown
+    int tickCount = 0;
     void fitToScreen();
 
     using ComboAtt  = juce::AudioProcessorValueTreeState::ComboBoxAttachment;

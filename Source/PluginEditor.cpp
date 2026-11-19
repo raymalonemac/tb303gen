@@ -496,6 +496,9 @@ void TB303Editor::resized()
 
 void TB303Editor::timerCallback()
 {
+    if (++tickCount == 3 || tickCount == 60)          // belt and braces: lay out again just after opening
+        relayout();
+
     roll.repaint();
 
     static int tick = 0;
