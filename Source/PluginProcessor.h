@@ -109,7 +109,7 @@ public:
     void redoTweak();
 
     // files
-    juce::File saveFolder() const;                       // ~/Music/TB303 Gen
+    juce::File saveFolder() const;                       // Google Drive "TB303 Gen" if Drive for desktop is installed, else ~/Music/TB303 Gen
     juce::String suggestedMidiName() const;
     bool saveMidiTo (const juce::File& file);
     bool saveToFolder (juce::File& written);

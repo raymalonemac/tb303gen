@@ -32,8 +32,7 @@ TB303Editor::TB303Editor (TB303Processor& p)
     };
 
     setResizable (true, true);
-    setResizeLimits (550, 635, 2200, 2540);                 // 50 % .. 200 %
-    getConstrainer()->setFixedAspectRatio ((double) kW / (double) kH);
+    setResizeLimits (480, 400, 8000, 6000);                 // any shape: the layout adapts (see layoutAll), so full screen uses every pixel
 
     content.addAndMakeVisible (roll);
     for (auto* c : { &groove, &filter, &envelope }) content.addAndMakeVisible (*c);
@@ -73,6 +72,7 @@ TB303Editor::TB303Editor (TB303Processor& p)
     rootAtt  = std::make_unique<ComboAtt> (proc.apvts, "root", rootBox);
     scaleAtt = std::make_unique<ComboAtt> (proc.apvts, "scale", scaleBox);
     waveAtt  = std::make_unique<ComboAtt> (proc.apvts, "wave", waveBox);
+    for (auto* cb : { &rootBox, &scaleBox, &waveBox }) cb->setWantsKeyboardFocus (false);
     rootBox.setVisible (false);                                     // ROOT / SCALE are button rows now; the combos only carry the host parameters
     scaleBox.setVisible (false);
 
@@ -155,6 +155,9 @@ TB303Editor::TB303Editor (TB303Processor& p)
     };
     roll.onEgg = [this] { rainbow = false; shiftColours (true); };
     content.addAndMakeVisible (fitBtn);
+    content.addAndMakeVisible (fullBtn);
+    fullBtn.setVisible (juce::JUCEApplicationBase::isStandaloneApp());
+    fullBtn.onClick = [this] { toggleFullScreen(); };
     zoomBar.onChange = [this] (float z) { applyZoom (z); };
     fitBtn.onClick   = [this] { fitToScreen(); };
 
@@ -183,6 +186,7 @@ TB303Editor::TB303Editor (TB303Processor& p)
 TB303Editor::~TB303Editor()
 {
     stopTimer();
+    if (hookedTop != nullptr) hookedTop->removeKeyListener (&keyHook);
     chooser.reset();
     setLookAndFeel (nullptr);
 }
@@ -212,6 +216,23 @@ void TB303Editor::setupCombo (juce::ComboBox& box, const char* paramId)
     content.addAndMakeVisible (box);
 }
 
+void TB303Editor::toggleFullScreen()
+{
+    if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
+        dw->setFullScreen (! dw->isFullScreen());
+}
+
+void TB303Editor::hookKeys()
+{
+    if (! juce::JUCEApplicationBase::isStandaloneApp()) return;          // inside a DAW the host keeps its own shortcuts
+    auto* top = getTopLevelComponent();
+    if (top == nullptr || top == hookedTop.getComponent()) return;
+    if (hookedTop != nullptr) hookedTop->removeKeyListener (&keyHook);
+    keyHook.fn = [this] (const juce::KeyPress& k) { return keyPressed (k); };
+    top->addKeyListener (&keyHook);
+    hookedTop = top;
+}
+
 void TB303Editor::refreshUndo()
 {
     undoBtn.setEnabled (proc.canUndo());
@@ -229,6 +250,8 @@ bool TB303Editor::keyPressed (const juce::KeyPress& k)
         else if (keysPage.isVisible()) keysPage.setVisible (false);
         else if (stylePage.isVisible()) stylePage.setVisible (false);
         else if (focus != fNone) setFocus (fNone);
+        else if (fullBtn.isVisible())
+            if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>()) if (dw->isFullScreen()) dw->setFullScreen (false);
         return true;
     }
     if (! k.getModifiers().isCommandDown() && ! k.getModifiers().isAltDown() && ! modal.isVisible() && ! keysPage.isVisible() && ! stylePage.isVisible())
@@ -238,11 +261,13 @@ bool TB303Editor::keyPressed (const juce::KeyPress& k)
         if (k == juce::KeyPress::leftKey)   { previousBtn.onClick(); return true; }
         if (k == juce::KeyPress::rightKey)  { nextBtn.onClick();     return true; }
         if (k == juce::KeyPress::downKey)   { doDownload();          return true; }
+        if (k.getTextCharacter() == 'f' || k.getTextCharacter() == 'F')
+            if (fullBtn.isVisible()) { toggleFullScreen(); return true; }
     }
     if (k.getModifiers().isCommandDown())                           // Cmd/Ctrl  +  -  0
     {
         const auto c = k.getTextCharacter();
-        const float z = (float) getWidth() / (float) kW;
+        const float z = scaleNow;
         if (c == '+' || c == '=') { applyZoom (z + 0.1f); return true; }
         if (c == '-' || c == '_') { applyZoom (z - 0.1f); return true; }
         if (c == '0')             { applyZoom (1.0f);     return true; }
@@ -339,21 +364,23 @@ void TB303Editor::layoutAll()
 {
     if (lfos[3] == nullptr) return;
     using R = juce::Rectangle<int>;
-    undoBtn.setBounds (896, 10, 92, 38);
-    redoBtn.setBounds (990, 10, 92, 38);
-    zoomBar.setBounds (560, 12, 256, 34);
+    const int pw = W - 40;                                    // usable width; everything below stretches with it
+    undoBtn.setBounds (W - 204, 10, 92, 38);
+    redoBtn.setBounds (W - 110, 10, 92, 38);
+    fullBtn.setBounds (W - 204 - 76, 10, 70, 38);
+    fitBtn.setBounds (W - 204 - 76 - (fullBtn.isVisible() ? 76 : 0), 10, 68, 38);
+    zoomBar.setBounds (fitBtn.getX() - 266, 12, 256, 34);
     titleHit.setBounds (20, 8, 232, 42);
-    fitBtn.setBounds (822, 10, 68, 38);
-    rollR = { 20, 58, 1060, 132 };
+    rollR = { 20, 58, pw, 132 };
     roll.setBounds (rollR);
-    infoR = { 22, 196, 1056, 18 };
+    infoR = { 22, 196, pw - 4, 18 };
 
     {   // action buttons share the row like flex items
         NButton* row[7] = { &generateBtn, &previousBtn, &nextBtn, &runBtn, &loadBtn, &downloadBtn, &folderBtn };
         const float w[7] = { 1.0f, 1.0f, 0.78f, 1.3f, 1.0f, 1.45f, 1.45f };
         float sum = 0.f;
         for (float x : w) sum += x;
-        const float avail = 1060.f - 6.f * 8.f;
+        const float avail = (float) pw - 6.f * 8.f;
         float x = 20.f;
         for (int i = 0; i < 7; ++i)
         {
@@ -365,14 +392,14 @@ void TB303Editor::layoutAll()
 
     const bool normal = focus == fNone, fgen = focus == fGen, fsyn = focus == fSynth, flfo = focus >= fLfo0;
     const int top = 322;
-    rowR2 = { 20, 272, 1060, 40 };
+    rowR2 = { 20, 272, pw, 40 };
     styleBtn.setBounds (16, 272, 210, 42);
     keysBtn.setBounds (234, 272, 140, 42);
     heartBtn.setBounds (382, 272, 330, 42);
     renBtn.setBounds (720, 272, 140, 42);
     styleDotR = { 200, 286, 12, 12 };
-    keysPage.setBounds (0, 0, kW, kH);
-    stylePage.setBounds (0, 0, kW, kH);
+    keysPage.setBounds (0, 0, W, H);
+    stylePage.setBounds (0, 0, W, H);
 
     genPanel = synthPanel = mixPanel = setupPanel = lfoHeader = linkedLabel = waveLabel = {};
     genTitleR = synthTitleR = {};
@@ -380,31 +407,45 @@ void TB303Editor::layoutAll()
     // --- which LFO cards go where
     std::vector<int> shown;
     R lfoRowArea;
-    if (normal)
+    bool lfoGrid = false;                                     // wide window: the four LFOs sit 2 x 2 in a right-hand column
+    if (normal && wide)
     {
-        genPanel   = { 20, top, 520, 252 };
-        synthPanel = { 560, top, 520, 252 };
-        mixPanel   = { 20, top + 264, 1060, 236 };            // full row: strips on the left, delay / reverb / distortion faders on the right
-        setupPanel = { 20, top + 512, 1060, 130 };
-        lfoHeader  = { 20, top + 654, 1060, 16 };
-        lfoRowArea = { 20, top + 674, 1060, 262 };
+        const int rw = juce::jmax (540, pw * 32 / 100), lw = pw - rw - 12, half = (lw - 12) / 2;
+        genPanel   = { 20, top, half, 252 };
+        synthPanel = { 20 + half + 12, top, lw - half - 12, 252 };
+        mixPanel   = { 20, top + 264, lw, 236 };
+        setupPanel = { 20, top + 512, lw, 130 };
+        lfoHeader  = { 20 + lw + 12, top, rw, 16 };
+        lfoRowArea = { 20 + lw + 12, top + 20, rw, H - top - 20 - 12 };
+        lfoGrid = true;
+        shown = { 0, 1, 2, 3 };
+    }
+    else if (normal)
+    {
+        const int half = (pw - 20) / 2;
+        genPanel   = { 20, top, half, 252 };
+        synthPanel = { 20 + half + 20, top, pw - half - 20, 252 };
+        mixPanel   = { 20, top + 264, pw, 236 };              // full row: strips on the left, delay / reverb / distortion faders on the right
+        setupPanel = { 20, top + 512, pw, 130 };
+        lfoHeader  = { 20, top + 654, pw, 16 };
+        lfoRowArea = { 20, top + 674, pw, juce::jmax (262, H - (top + 674) - 12) };
         shown = { 0, 1, 2, 3 };
     }
     else if (fgen || fsyn)
     {
         shown = linkedLfos (focus);
-        const int h = shown.empty() ? 684 : 330;
-        (fgen ? genPanel : synthPanel) = { 20, top, 1060, h };
+        const int h = shown.empty() ? H - top - 12 : juce::jmax (330, (H - top) * 40 / 100);
+        (fgen ? genPanel : synthPanel) = { 20, top, pw, h };
         if (! shown.empty())
         {
             linkedLabel = { 20, top + h + 10, 400, 14 };
-            lfoRowArea = { 20, top + h + 30, 1060, kH - (top + h + 30) - 12 };
+            lfoRowArea = { 20, top + h + 30, pw, H - (top + h + 30) - 12 };
         }
     }
     else
     {
         shown = { focus - fLfo0 };
-        lfoRowArea = { 20, top, 1060, 684 };
+        lfoRowArea = { 20, top, pw, H - top - 12 };
     }
 
     // --- generator + synth panels
@@ -493,8 +534,16 @@ void TB303Editor::layoutAll()
         c.full = flfo;
         if (! vis) continue;
 
-        if (normal)
-            c.setBounds (lfoRowArea.getX() + slot * (256 + 12), lfoRowArea.getY(), 256, lfoRowArea.getHeight());
+        if (normal && lfoGrid)
+        {
+            const int cw = (lfoRowArea.getWidth() - 12) / 2, ch = (lfoRowArea.getHeight() - 12) / 2;
+            c.setBounds (lfoRowArea.getX() + (slot % 2) * (cw + 12), lfoRowArea.getY() + (slot / 2) * (ch + 12), cw, ch);
+        }
+        else if (normal)
+        {
+            const int cw = (lfoRowArea.getWidth() - 3 * 12) / 4;
+            c.setBounds (lfoRowArea.getX() + slot * (cw + 12), lfoRowArea.getY(), cw, lfoRowArea.getHeight());
+        }
         else if (flfo)
             c.setBounds (lfoRowArea);
         else
@@ -511,7 +560,7 @@ void TB303Editor::layoutAll()
     else if (fsyn)  closeBtn.setBounds (synthPanel.getRight() - 52, synthPanel.getY() + 6, 40, 40);
     else if (flfo)  closeBtn.setBounds (lfoRowArea.getRight() - 52, lfoRowArea.getY() + 4, 40, 40);
 
-    modal.setBounds (0, 0, kW, kH);
+    modal.setBounds (0, 0, W, H);
     modal.toFront (false);
 }
 
@@ -545,7 +594,7 @@ void TB303Editor::paintContent (juce::Graphics& g)
     g.fillAll (ui::bg);
     g.setGradientFill (juce::ColourGradient (ui::rot (juce::Colour (0xff0b3a36)), 90.f, -80.f, ui::rot (juce::Colour (0x000b3a36)), 730.f, -80.f, true));
     g.fillAll();
-    g.setGradientFill (juce::ColourGradient (ui::rot (juce::Colour (0xff101c52)), (float) kW, (float) kH + 60.f, ui::rot (juce::Colour (0x00101c52)), (float) kW - 600.f, (float) kH + 60.f, true));
+    g.setGradientFill (juce::ColourGradient (ui::rot (juce::Colour (0xff101c52)), (float) W, (float) H + 60.f, ui::rot (juce::Colour (0x00101c52)), (float) W - 600.f, (float) H + 60.f, true));
     g.fillAll();
 
     g.setColour (ui::fg);
@@ -617,7 +666,8 @@ void TB303Editor::shiftColours (bool reset)
 void TB303Editor::applyZoom (float z)
 {
     z = juce::jlimit (ZoomBar::kMin, ZoomBar::kMax, z);
-    setSize (juce::roundToInt ((float) kW * z), juce::roundToInt ((float) kH * z));
+    const float f = z / juce::jmax (0.01f, scaleNow);                   // keeps the window's shape, scales it
+    setSize (juce::roundToInt ((float) getWidth() * f), juce::roundToInt ((float) getHeight() * f));
 }
 
 // largest zoom whose window still fits on the screen this editor is on (room left for the title bar / host chrome)
@@ -640,9 +690,17 @@ void TB303Editor::fitToScreen()
 
 void TB303Editor::resized()
 {
-    content.setBounds (0, 0, kW, kH);
-    const float z = (float) getWidth() / (float) kW;
+    // Pick the arrangement by window shape: tall / square windows keep the single column, wide windows (and full screen)
+    // put the four LFOs in a column on the right. The content is laid out in "design pixels" that fill the window exactly.
+    const float w = (float) juce::jmax (1, getWidth()), h = (float) juce::jmax (1, getHeight());
+    wide = w / h > 1.45f;
+    const float bw = wide ? (float) kWideW : (float) kW, bh = wide ? (float) kWideH : (float) kH;
+    const float z = juce::jmin (w / bw, h / bh);
+    W = juce::roundToInt (w / z);
+    H = juce::roundToInt (h / z);
+    content.setBounds (0, 0, W, H);
     content.setTransform (juce::AffineTransform::scale (z));
+    scaleNow = z;
     zoomBar.setZoom (z);
     proc.editorZoom = z;
     layoutAll();
@@ -651,7 +709,11 @@ void TB303Editor::resized()
 void TB303Editor::timerCallback()
 {
     if (++tickCount == 3 || tickCount == 60)          // belt and braces: lay out again just after opening
+    {
         relayout();
+        hookKeys();
+        if (juce::Component::getCurrentlyFocusedComponent() == nullptr) grabKeyboardFocus();
+    }
 
     if (rainbow && (tickCount % 4) == 0)                            // one full lap of the wheel in 60 s (updated 15x a second)
     {

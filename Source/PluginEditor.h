@@ -103,7 +103,8 @@ class NButton : public juce::TextButton
 public:
     enum Icon { none, dice, prev, next, play, stop, cross };
     explicit NButton (const juce::String& text, juce::Colour c = ui::green, Icon i = none)
-        : juce::TextButton (text), neon (c), icon (i) {}      // `neon` is the base colour; painted through ui::rot()
+        
+        : juce::TextButton (text), neon (c), icon (i) { setWantsKeyboardFocus (false); }   // keys always reach the editor's shortcuts      // `neon` is the base colour; painted through ui::rot()
     void paintButton (juce::Graphics&, bool over, bool down) override;
     juce::Colour neon;
     Icon icon;
@@ -117,6 +118,7 @@ public:
     explicit LockButton (const juce::String& text) : juce::Button ("lock"), captionText (text)
     {
         setClickingTogglesState (true);
+        setWantsKeyboardFocus (false);
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
     void paintButton (juce::Graphics&, bool over, bool down) override;
@@ -341,9 +343,18 @@ public:
     ~TB303Editor() override;
     void paint (juce::Graphics&) override;
     void resized() override;
-    void parentHierarchyChanged() override { relayout(); }
+    void parentHierarchyChanged() override { relayout(); hookKeys(); }
     void visibilityChanged() override { relayout(); }
     bool keyPressed (const juce::KeyPress&) override;
+    struct KeyHook : juce::KeyListener      // on the window itself, so the shortcuts work whichever control was clicked last (standalone too)
+    {
+        std::function<bool (const juce::KeyPress&)> fn;
+        bool keyPressed (const juce::KeyPress& k, juce::Component*) override
+        {
+            if (dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) != nullptr) return false;
+            return fn && fn (k);
+        }
+    };
 
 private:
     enum Focus { fNone = -1, fGen = 0, fSynth = 1, fLfo0 = 2 };     // fLfo0 + n = LFO n+1 full screen
@@ -375,6 +386,9 @@ private:
     void setupCombo (juce::ComboBox&, const char* paramId);
     void applyZoom (float z);
     void shiftColours (bool reset);                                 // easter egg
+    void hookKeys();
+    KeyHook keyHook;
+    juce::Component::SafePointer<juce::Component> hookedTop;
     void relayout() { if (lfos[3] != nullptr) { resized(); repaint(); } }   // some hosts/standalone only give the window its final size after we are shown
     int tickCount = 0;
     bool firstGenerate = true;
@@ -391,7 +405,11 @@ private:
         void paint (juce::Graphics& g) override { if (onPaint) onPaint (g); }
         void mouseDown (const juce::MouseEvent& e) override { if (onDown) onDown (e.position); }
     };
-    static constexpr int kW = 1100, kH = 1270;
+    static constexpr int kW = 1100, kH = 1270;          // single-column design size
+    static constexpr int kWideW = 1700, kWideH = 1010;  // wide design size (LFOs in a right-hand column)
+    int W = kW, H = kH;                                 // current design size = the window size / scale
+    float scaleNow = 0.85f;
+    bool wide = false;
 
     TB303Processor& proc;
     NebuleLookAndFeel laf;
@@ -431,6 +449,8 @@ private:
     struct TitleHit : juce::Component { std::function<void (int)> onClick; void mouseDown (const juce::MouseEvent& e) override { if (onClick) onClick (e.getNumberOfClicks()); } } titleHit;
     bool rainbow = false;                                           // triple-click on the title: slow hue drift (one lap per minute)
     NButton fitBtn { "FIT", ui::cyan };
+    NButton fullBtn { "FULL", ui::violet };                       // standalone only: native full screen
+    void toggleFullScreen();
     ModalOverlay modal;
     KeysOverlay keysPage;
     StyleOverlay stylePage { proc };

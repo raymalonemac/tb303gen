@@ -447,8 +447,22 @@ juce::String TB303Processor::midiFileName() const
 
 juce::String TB303Processor::suggestedMidiName() const { return midiFileName(); }
 
+// The same "TB303 Gen" folder the web app uses in Google Drive, when Google Drive for desktop is installed (it syncs the
+// folder both ways); otherwise ~/Music/TB303 Gen.
 juce::File TB303Processor::saveFolder() const
 {
+    const auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+    juce::Array<juce::File> roots;
+    const auto cloud = home.getChildFile ("Library/CloudStorage");                    // macOS: GoogleDrive-name@gmail.com/My Drive
+    if (cloud.isDirectory())
+        for (auto& d : cloud.findChildFiles (juce::File::findDirectories, false, "GoogleDrive-*"))
+            roots.add (d.getChildFile ("My Drive"));
+    roots.add (home.getChildFile ("Google Drive/My Drive"));                          // older Drive for desktop / Windows profile
+    roots.add (home.getChildFile ("Google Drive"));
+    roots.add (juce::File ("G:\\My Drive"));                                           // Windows drive letter
+    for (auto& r : roots)
+        if (r.isDirectory())
+            return r.getChildFile ("TB303 Gen");
     return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("TB303 Gen");
 }
 
