@@ -447,9 +447,14 @@ juce::String TB303Processor::midiFileName() const
 
 juce::String TB303Processor::suggestedMidiName() const { return midiFileName(); }
 
-// The same "TB303 Gen" folder the web app uses in Google Drive, when Google Drive for desktop is installed (it syncs the
-// folder both ways); otherwise ~/Music/TB303 Gen.
-juce::File TB303Processor::saveFolder() const
+// Save folder: the one you chose (remembered in a small settings file), else the same "TB303 Gen" folder the web app
+// uses in Google Drive when Google Drive for desktop is installed (it syncs the folder both ways), else ~/Music/TB303 Gen.
+namespace
+{
+juce::File settingsFile() { return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("TB303Gen/folder.txt"); }
+}
+
+juce::File TB303Processor::driveFolder() const
 {
     const auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
     juce::Array<juce::File> roots;
@@ -463,7 +468,34 @@ juce::File TB303Processor::saveFolder() const
     for (auto& r : roots)
         if (r.isDirectory())
             return r.getChildFile ("TB303 Gen");
+    return {};
+}
+
+juce::File TB303Processor::saveFolder() const
+{
+    const auto f = settingsFile();
+    if (f.existsAsFile())
+    {
+        const juce::File chosen (f.loadFileAsString().trim());
+        if (chosen.getFullPathName().isNotEmpty() && chosen.getParentDirectory().isDirectory()) return chosen;
+    }
+    const auto d = driveFolder();
+    if (d != juce::File()) return d;
     return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("TB303 Gen");
+}
+
+bool TB303Processor::saveFolderIsDrive() const
+{
+    const auto p = saveFolder().getFullPathName();
+    return p.containsIgnoreCase ("GoogleDrive") || p.containsIgnoreCase ("Google Drive") || p.containsIgnoreCase ("My Drive");
+}
+
+void TB303Processor::setSaveFolder (const juce::File& folder)
+{
+    const auto f = settingsFile();
+    f.getParentDirectory().createDirectory();
+    f.replaceWithText (folder.getFullPathName());
+    if (! styleHas || ! styleManual) autoStyle();
 }
 
 bool TB303Processor::saveMidiTo (const juce::File& file)

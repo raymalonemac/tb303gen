@@ -378,6 +378,8 @@ private:
     void saveStylePress();
     void loadStylePress();
     void keysPress();
+    void driveFolderPress();
+    void chooseSaveFolder();
     void refreshSetupButtons();
     void showNotice (const TB303Processor::Notice&);
     void showSaved (const juce::File&, bool revealFolder);
@@ -454,7 +456,7 @@ private:
     ModalOverlay modal;
     KeysOverlay keysPage;
     StyleOverlay stylePage { proc };
-    NButton styleBtn { "STYLE", ui::violet }, keysBtn { "KEYS", ui::green }, heartBtn { "PLAY SAVED LOOPS", ui::pink }, renBtn { "RENAME", ui::cyan };
+    NButton styleBtn { "STYLE", ui::violet }, keysBtn { "KEYS", ui::green }, heartBtn { "PLAY SAVED LOOPS", ui::pink }, renBtn { "RENAME", ui::cyan }, driveBtn { "GOOGLE DRIVE", ui::green };
     std::vector<std::unique_ptr<NButton>> rootBtns, scaleBtns;          // ROOT / SCALE rows of the setup panel (the combos stay hidden for the host)
     juce::Rectangle<int> rowR2, styleDotR;
     std::unique_ptr<juce::FileChooser> chooser;

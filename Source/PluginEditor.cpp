@@ -95,7 +95,8 @@ TB303Editor::TB303Editor (TB303Processor& p)
         }
     }
 
-    for (auto* b : { &styleBtn, &keysBtn, &heartBtn, &renBtn }) content.addAndMakeVisible (*b);
+    for (auto* b : { &styleBtn, &keysBtn, &heartBtn, &renBtn, &driveBtn }) content.addAndMakeVisible (*b);
+    driveBtn.onClick = [this] { driveFolderPress(); };
     renBtn.setVisible (false);
     styleBtn.onClick = [this] { stylePage.open(); };
     keysBtn.onClick  = [this] { keysPress(); };
@@ -288,8 +289,9 @@ void TB303Editor::showSaved (const juce::File& f, bool revealFolder)
     }
     else
         b.push_back ({ "OK", nullptr, true });
-    modal.show (revealFolder ? "SAVED TO FOLDER" : "MIDI SAVED", f.getFileName(),
-                "The bassline is in " + f.getParentDirectory().getFullPathName() + ". Bass only, no drums.", false, std::move (b));
+    modal.show (revealFolder ? (proc.saveFolderIsDrive() ? "SAVED TO DRIVE" : "SAVED TO FOLDER") : "MIDI SAVED", f.getFileName(),
+                "The bassline is in " + f.getParentDirectory().getFullPathName() + ". Bass only, no drums."
+                    + (revealFolder && proc.saveFolderIsDrive() ? " Google Drive uploads it in a moment; the web app finds it there." : juce::String()), false, std::move (b));
 }
 
 void TB303Editor::doLoad()
@@ -397,6 +399,7 @@ void TB303Editor::layoutAll()
     keysBtn.setBounds (234, 272, 140, 42);
     heartBtn.setBounds (382, 272, 330, 42);
     renBtn.setBounds (720, 272, 140, 42);
+    driveBtn.setBounds (868, 272, 220, 42);
     styleDotR = { 200, 286, 12, 12 };
     keysPage.setBounds (0, 0, W, H);
     stylePage.setBounds (0, 0, W, H);
@@ -777,6 +780,12 @@ void TB303Editor::refreshSetupButtons()
     heartBtn.setToggleState (juke, juce::dontSendNotification);
     renBtn.setVisible (juke);
     keysBtn.setToggleState (proc.keysActive(), juce::dontSendNotification);
+    const bool drive = proc.saveFolderIsDrive();
+    const auto dt = drive ? juce::String ("GOOGLE DRIVE  ON") : juce::String ("GOOGLE DRIVE");
+    if (driveBtn.getButtonText() != dt) { driveBtn.setButtonText (dt); driveBtn.repaint(); }
+    driveBtn.setToggleState (drive, juce::dontSendNotification);
+    const auto ft = drive ? juce::String ("SAVE TO DRIVE") : juce::String ("SAVE TO FOLDER");
+    if (folderBtn.getButtonText() != ft) { folderBtn.setButtonText (ft); folderBtn.repaint(); }
     styleBtn.setToggleState (proc.styleIsOn(), juce::dontSendNotification);
 }
 
@@ -799,6 +808,40 @@ void TB303Editor::askName (const juce::String& title, const juce::String& msg, s
     {
         if (r == 1 && sw != nullptr) done (sw->getTextEditorContents ("n"));
     }), true);
+}
+
+void TB303Editor::driveFolderPress()
+{
+    const auto cur = proc.saveFolder();
+    const bool drive = proc.saveFolderIsDrive();
+    const auto found = proc.driveFolder();
+    juce::String text = drive ? "Your loops and styles are saved in your Google Drive folder, so the web app sees them too:\n"
+                              : "Loops and styles are saved here:\n";
+    text << cur.getFullPathName() << "\n\n";
+    if (! drive)
+        text << (found == juce::File() ? "Google Drive for desktop was not found. Install it from google.com/drive/download and sign in, then press CHOOSE FOLDER and pick My Drive > TB303 Gen."
+                                       : "Google Drive for desktop is installed: press USE DRIVE to switch to " + found.getFullPathName());
+    else
+        text << "Google Drive for desktop keeps this folder in step with your Drive.";
+    std::vector<ModalOverlay::Btn> b;
+    if (! drive && found != juce::File())
+        b.push_back ({ "USE DRIVE", [this, found] { found.createDirectory(); proc.setSaveFolder (found); }, true });
+    b.push_back ({ "CHOOSE FOLDER", [this] { chooseSaveFolder(); }, false });
+    b.push_back ({ "OPEN FOLDER", [cur] { cur.createDirectory(); cur.revealToUser(); }, false });
+    b.push_back ({ "OK", nullptr, drive });
+    modal.show ("GOOGLE DRIVE", {}, text, false, std::move (b));
+}
+
+void TB303Editor::chooseSaveFolder()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Pick the folder for your loops (your Google Drive > TB303 Gen)", proc.saveFolder().getParentDirectory());
+    juce::Component::SafePointer<TB303Editor> safe (this);
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [safe] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr || fc.getResult() == juce::File()) return;
+        safe->proc.setSaveFolder (fc.getResult());
+        safe->driveFolderPress();
+    });
 }
 
 void TB303Editor::keysPress()
