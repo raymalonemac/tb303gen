@@ -829,7 +829,7 @@ void TB303Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
                 ++ti;
             }
             const float s = kick.process() * kv * 0.5f            // kick 50% quieter
-                          + hat.process() * hv * 6.32f           // hat louder again (+6 dB on top of the earlier +10 dB);
+                          + hat.process() * hv * 6.32f;          // hat louder again (+6 dB on top of the earlier +10 dB)
             L[i] += s;
             if (R != nullptr) R[i] += s;
         }
