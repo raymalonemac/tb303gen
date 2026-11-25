@@ -28,7 +28,14 @@ else()
     set(TB303_FORMATS VST3 Standalone)      # Audio Units only exist on macOS
 endif()
 
+# Put a square PNG (1024x1024 is best) at Assets/icon.png and the standalone app gets it as its icon.
+set(TB303_ICON_ARGS "")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png")
+    set(TB303_ICON_ARGS ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png" ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png")
+endif()
+
 juce_add_plugin(TB303Gen
+    ${TB303_ICON_ARGS}
     COMPANY_NAME "TB303Gen"
     PLUGIN_MANUFACTURER_CODE Tbgn
     PLUGIN_CODE Tb30
