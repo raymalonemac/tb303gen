@@ -19,11 +19,11 @@ inline const DestDef& destDef (int d)
     static const DestDef defs[kDests] = {
         { "cutoff",  "CUTOFF",  40.f,   8000.f, true  }, { "reso",    "RESO",    0.f, 1.f, false },
         { "envmod",  "ENV MOD", 0.f,    1.f,    false }, { "decay",   "DECAY",   0.05f, 1.5f, false },
-        { "volume",  "VOLUME",  0.f,    1.f,    false }, { "kickvol", "KICK",    0.f, 1.f, false },
+        { "volume",  "VOLUME",  0.f,    0.15f,  false }, { "kickvol", "KICK",    0.f, 1.f, false },
         { "hatvol",  "HAT",     0.f,    1.f,    false }, { "pitch",   "PITCH",   -100.f, 100.f, false },
         { "master",  "MASTER",  0.f,    1.f,    false }, { "notes",   "NOTES",   0.f, 1.f, false },
         { "accents", "ACCENTS", 0.f,    1.f,    false }, { "slides",  "SLIDES",  0.f, 1.f, false },
-        { "octave",  "OCTAVE",  0.f,    1.f,    false }, { "variation", "VARIAT.", 0.f, 1.f, false } };
+        { "octave",  "OCTAVE",  0.f,    1.f,    false }, { "variation", "VARIAT.", 0.01f, 0.40f, false } };
     return defs[d];
 }
 

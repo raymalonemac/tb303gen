@@ -13,13 +13,13 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
       - name: Check it is universal
-        run: lipo -archs "build/TB303Gen_artefacts/Release/VST3/TB-303 Gen.vst3/Contents/MacOS/TB-303 Gen"
+        run: lipo -archs "build/TB303Gen_artefacts/Release/VST3/BASSLINER303.vst3/Contents/MacOS/BASSLINER303"
       - name: Package
         run: |
           mkdir out
-          cp -R "build/TB303Gen_artefacts/Release/VST3/TB-303 Gen.vst3" out/
-          cp -R "build/TB303Gen_artefacts/Release/AU/TB-303 Gen.component" out/
-          cp -R "build/TB303Gen_artefacts/Release/Standalone/TB-303 Gen.app" out/
+          cp -R "build/TB303Gen_artefacts/Release/VST3/BASSLINER303.vst3" out/
+          cp -R "build/TB303Gen_artefacts/Release/AU/BASSLINER303.component" out/
+          cp -R "build/TB303Gen_artefacts/Release/Standalone/BASSLINER303.app" out/
           cd out && zip -ry ../TB303Gen-universal.zip .
       - uses: actions/upload-artifact@v4
         with:
@@ -38,8 +38,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory out | Out-Null
-          Copy-Item -Recurse "build/TB303Gen_artefacts/Release/VST3/TB-303 Gen.vst3" out/
-          Copy-Item "build/TB303Gen_artefacts/Release/Standalone/TB-303 Gen.exe" out/
+          Copy-Item -Recurse "build/TB303Gen_artefacts/Release/VST3/BASSLINER303.vst3" out/
+          Copy-Item "build/TB303Gen_artefacts/Release/Standalone/BASSLINER303.exe" out/
           Compress-Archive -Path out/* -DestinationPath TB303Gen-windows.zip
       - uses: actions/upload-artifact@v4
         with:

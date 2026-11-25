@@ -2,6 +2,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
+#include <cmath>
+#include <algorithm>
 
 // 606-style kick: short sine with a fast pitch drop, tight decay, tiny click.
 class Kick606

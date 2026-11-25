@@ -4,7 +4,7 @@
 // ============================================================================================
 //  look and feel + buttons
 // ============================================================================================
-NebuleLookAndFeel::NebuleLookAndFeel()
+void NebuleLookAndFeel::refresh()
 {
     using namespace ui;
     setColour (juce::ResizableWindow::backgroundColourId, bg);
@@ -108,7 +108,7 @@ void NButton::paintButton (juce::Graphics& g, bool over, bool down)
 {
     const bool enabled = isEnabled();
     const bool filled = enabled && (primary || getToggleState());
-    const auto c = enabled ? neon : ui::muted.withAlpha (0.5f);
+    const auto c = enabled ? ui::rot (neon) : ui::muted.withAlpha (0.5f);
     const auto r = getLocalBounds().toFloat().reduced (4.f);
     const float corner = r.getHeight() * 0.5f;
 
@@ -226,7 +226,7 @@ void drawPair (juce::Graphics& g, juce::Rectangle<float> area, const juce::Strin
 // ============================================================================================
 XYCard::XYCard (TB303Processor& p, const juce::String& t, const juce::String& idX, const juce::String& idY, int destX, int destY,
                 juce::Colour col, const juce::String& nX, const juce::String& nY, bool gen)
-    : colour (col), proc (p), title (t), nameX (nX), nameY (nY), dx (destX), dy (destY), generator (gen)
+    : colour0 (col), proc (p), title (t), nameX (nX), nameY (nY), dx (destX), dy (destY), generator (gen)
 {
     px.p = p.apvts.getParameter (idX);
     py.p = p.apvts.getParameter (idY);
@@ -240,6 +240,7 @@ juce::Rectangle<float> XYCard::track() const
 
 void XYCard::paint (juce::Graphics& g)
 {
+    const auto colour = ui::rot (colour0);
     const auto b = getLocalBounds().toFloat();
     ui::card (g, b, colour, 12.f, 0.35f);
     ui::caption (g, title, b.withHeight (24.f).withTrimmedLeft (14.f), colour, 9.5f);
@@ -322,7 +323,7 @@ void XYCard::mouseUp (const juce::MouseEvent&)
 //  vertical fader
 // ============================================================================================
 VFader::VFader (TB303Processor& p, const juce::String& n, const juce::String& id, int d, juce::Colour col, bool gen)
-    : proc (p), name (n), dest (d), colour (col), generator (gen)
+    : proc (p), name (n), dest (d), colour0 (col), generator (gen)
 {
     pr.p = p.apvts.getParameter (id);
     setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
@@ -335,6 +336,7 @@ juce::Rectangle<float> VFader::track() const
 
 void VFader::paint (juce::Graphics& g)
 {
+    const auto colour = ui::rot (colour0);
     const auto b = getLocalBounds().toFloat();
     const auto t = track();
     const float cx = b.getCentreX();
@@ -387,7 +389,7 @@ void VFader::update (const juce::MouseEvent& e)
 void VFader::mouseDown (const juce::MouseEvent& e)
 {
     if (locked) return;
-    if (generator && onGestureStart) onGestureStart();
+    if (onGestureStart) onGestureStart();            // generator faders: tweak gesture; DELAY / REVERB / DIST: switch the effect on
     pr.begin();
     update (e);
 }
@@ -398,6 +400,93 @@ void VFader::mouseUp (const juce::MouseEvent&)
 {
     if (locked) return;
     pr.end();
+    if (generator && onGestureEnd) onGestureEnd();
+}
+
+// ============================================================================================
+//  horizontal fader
+// ============================================================================================
+HFader::HFader (TB303Processor& p, const juce::String& n, const juce::String& id, int d, juce::Colour col, bool gen)
+    : proc (p), name (n), dest (d), colour0 (col), generator (gen)
+{
+    pr.p = p.apvts.getParameter (id);
+    setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
+}
+
+juce::Rectangle<float> HFader::track() const
+{
+    return getLocalBounds().toFloat().withTrimmedLeft (78.f).withTrimmedRight (56.f).reduced (10.f, 0.f);
+}
+
+void HFader::paint (juce::Graphics& g)
+{
+    const auto colour = ui::rot (colour0);
+    const auto b = getLocalBounds().toFloat();
+    const auto t = track();
+    const float cy = b.getCentreY();
+    const float n = pr.get();
+    const float x = t.getX() + n * t.getWidth();
+
+    ui::caption (g, name, b.withWidth (74.f).withTrimmedLeft (4.f), colour, 9.5f, juce::Justification::centredLeft, 0.2f);
+    g.setColour (ui::fg.withAlpha (0.95f));
+    g.setFont (ui::mono (10.f));
+    g.drawText (pr.text(), b.withTrimmedLeft (b.getWidth() - 54.f), juce::Justification::centredRight, false);
+
+    juce::Path groove, fill;
+    groove.startNewSubPath (t.getX() - 4.f, cy); groove.lineTo (t.getRight() + 4.f, cy);
+    fill.startNewSubPath (t.getX() - 4.f, cy);   fill.lineTo (x, cy);
+    const auto rounded = [] (float w) { return juce::PathStrokeType (w, juce::PathStrokeType::curved, juce::PathStrokeType::rounded); };
+    g.setColour (juce::Colour (0xff111b24));
+    g.strokePath (groove, rounded (6.f));
+    g.setColour (colour.withAlpha (0.10f)); g.strokePath (fill, rounded (16.f));
+    g.setColour (colour.withAlpha (0.85f)); g.strokePath (fill, rounded (6.f));
+
+    std::vector<Ghost> ghosts;
+    collectGhosts (proc, dest, -1, n, 0.f, ghosts);
+    for (const auto& gh : ghosts)
+    {
+        const float gx = t.getX() + gh.x * t.getWidth();
+        const float gy = cy + juce::jmin (12.f, b.getHeight() * 0.5f - 4.f);
+        g.setColour (gh.c.withAlpha (0.2f)); g.fillEllipse (gx - 4.f, gy - 4.f, 8.f, 8.f);
+        g.setColour (gh.c);                   g.drawEllipse (gx - 4.f, gy - 4.f, 8.f, 8.f, 1.4f);
+    }
+
+    const float th = juce::jmin (34.f, b.getHeight() - 2.f);
+    const juce::Rectangle<float> h (x - 8.f, cy - th * 0.5f, 16.f, th);
+    ui::glowRect (g, h, colour, 6.f);
+    g.setColour (juce::Colour (0xff0b131b));
+    g.fillRoundedRectangle (h, 6.f);
+    g.setColour (ui::silver);
+    g.drawRoundedRectangle (h, 6.f, 1.8f);
+    g.drawLine (x, cy - 8.f, x, cy + 8.f, 2.f);
+}
+
+void HFader::update (const juce::MouseEvent& e)
+{
+    const auto t = track();
+    pr.set ((e.position.x - t.getX()) / juce::jmax (1.f, t.getWidth()));
+}
+
+void HFader::mouseDown (const juce::MouseEvent& e)
+{
+    if (generator && onGestureStart) onGestureStart();
+    pr.begin();
+    update (e);
+}
+
+void HFader::mouseDrag (const juce::MouseEvent& e) { update (e); }
+
+void HFader::mouseUp (const juce::MouseEvent&)
+{
+    pr.end();
+    if (generator && onGestureEnd) onGestureEnd();
+}
+
+void HFader::mouseDoubleClick (const juce::MouseEvent&)
+{
+    if (pr.p == nullptr) return;
+    if (generator && onGestureStart) onGestureStart();
+    pr.begin(); pr.set (pr.p->getDefaultValue()); pr.end();
     if (generator && onGestureEnd) onGestureEnd();
 }
 
@@ -434,7 +523,7 @@ float scopeHash (float x, int n)
 LfoCard::LfoCard (TB303Processor& p, int i)
     : rateDepth (p, "RATE / DEPTH", "lfo" + juce::String (i + 1) + "rate", "lfo" + juce::String (i + 1) + "depth", -1, -1,
                  ui::lfoColour (i), "RATE", "DEPTH", false),
-      proc (p), index (i), colour (ui::lfoColour (i))
+      proc (p), index (i), colour0 (juce::Colour (0))
 {
     shape.p = p.apvts.getParameter ("lfo" + juce::String (i + 1) + "shape");
     addAndMakeVisible (rateDepth);
@@ -484,6 +573,7 @@ void LfoCard::mouseDown (const juce::MouseEvent& e)
 
 void LfoCard::paintScope (juce::Graphics& g, juce::Rectangle<float> r)
 {
+    const auto colour = ui::lfoColour (index);
     g.setColour (juce::Colour (0xff060b10));
     g.fillRoundedRectangle (r, 7.f);
     g.setColour (colour.withAlpha (0.14f));
@@ -515,6 +605,7 @@ void LfoCard::paintScope (juce::Graphics& g, juce::Rectangle<float> r)
 
 void LfoCard::paint (juce::Graphics& g)
 {
+    const auto colour = ui::lfoColour (index);
     const auto b = getLocalBounds().toFloat();
     g.setColour (colour.withAlpha (0.05f));
     g.fillRoundedRectangle (b.expanded (2.f), 18.f);
@@ -779,14 +870,26 @@ void RollView::paint (juce::Graphics& g)
         const float x = std::round ((float) ((double) k - s0) * sw);
         if (md (k, tb::kStepsPerBar) == 0)
         {
-            g.setColour (ui::steel (0.30f)); g.fillRect (x, 0.f, 2.f, H);
-            const auto label = "BAR " + juce::String ((int) (md (k, curPat.len) / tb::kStepsPerBar) + 1);
-            const juce::Rectangle<float> lr (x + 8.f, 3.f, 140.f, 20.f);
+            const bool inc = hasNext && k >= boundary;                      // this bar belongs to the pattern that is about to start
+            const auto& pat = inc ? nextPat : curPat;
+            const long long off = inc ? k - boundary : k, L = std::max (1, pat.len);
+            const int barNo = (int) (md (off, L) / tb::kStepsPerBar) + 1;
+            if (barNo == 1)                                                  // the line in front of bar 1: thick, always glowing, flashing on the beat
+            {
+                const double ph = std::fmod (juce::Time::getMillisecondCounterHiRes() / 1000.0 * proc.uiBpm.load() / 60.0, 1.0);
+                const float pulse = 0.45f + 0.55f * (float) std::pow (1.0 - ph, 1.5);
+                g.setColour (ui::green.withAlpha (0.10f * pulse)); g.fillRect (x - 9.f, 0.f, 20.f, H);
+                g.setColour (ui::green.withAlpha (0.22f * pulse)); g.fillRect (x - 5.f, 0.f, 12.f, H);
+                g.setColour (ui::green.withAlpha (0.55f + 0.45f * pulse)); g.fillRect (x - 2.f, 0.f, 5.f, H);
+            }
+            else { g.setColour (ui::steel (0.30f)); g.fillRect (x, 0.f, 2.f, H); }
+            const auto label = (inc ? "NEXT - BAR " : "BAR ") + juce::String (barNo);
+            const juce::Rectangle<float> lr (x + 10.f, 3.f, 170.f, 20.f);
             g.setFont (ui::mono (15.f));
-            g.setColour (ui::pink.withAlpha (0.16f));
+            g.setColour (ui::green.withAlpha (0.16f));
             for (auto o : { juce::Point<float> (-1.f, 0.f), juce::Point<float> (1.f, 0.f), juce::Point<float> (0.f, -1.f), juce::Point<float> (0.f, 1.f) })
                 g.drawText (label, lr.translated (o.x, o.y), juce::Justification::centredLeft, false);
-            g.setColour (ui::pink);
+            g.setColour (ui::green);
             g.drawText (label, lr, juce::Justification::centredLeft, false);
         }
         else if (md (k, 4) == 0) { g.setColour (ui::steel (0.14f)); g.fillRect (x, 0.f, 1.f, H); }
@@ -822,7 +925,13 @@ void RollView::paint (juce::Graphics& g)
             const float al = (long long) k < cur ? 0.38f : 1.f;
             const float x = (float) ((double) k - s0) * sw, y = noteY ((int) s.pitch), w = sw * 0.62f;
             const auto col = s.accent ? ui::pink : ui::cyan;
-            pillAt (g, x, y, w, juce::jlimit (5.f, 11.f, rowH * 0.85f), col, (long long) k < cur ? 0.f : 12.f, al);
+            const float ph2 = juce::jlimit (5.f, 11.f, rowH * 0.85f);
+            pillAt (g, x, y, w, ph2, col, (long long) k < cur ? 0.f : 12.f, al);
+            if (hasNext && k >= boundary)                                    // notes of the incoming pattern get a pulsing outline
+            {
+                g.setColour (juce::Colour (0xffe8fffa).withAlpha (0.55f + 0.45f * std::sin (T * 7.f + (float) k * 0.4f)));
+                g.drawRoundedRectangle (x - 1.5f, y - ph2 * 0.5f - 1.5f, w + 3.f, ph2 + 3.f, 4.f, 1.4f);
+            }
 
             const auto& nx = stepAt (k + 1);
             if (s.slide && nx.active)
@@ -875,7 +984,11 @@ void RollView::paint (juce::Graphics& g)
     g.strokePath (frame, juce::PathStrokeType (1.f));
 }
 
-void RollView::mouseDown (const juce::MouseEvent&) { dragStarted = false; }
+void RollView::mouseDown (const juce::MouseEvent& e)
+{
+    dragStarted = false;
+    if (e.getNumberOfClicks() == 3 && onEgg) onEgg();
+}
 
 // the roll never scrolls here: dragging it hands the line to your DAW (or Finder) as a .mid, bass only
 void RollView::mouseDrag (const juce::MouseEvent& e)
@@ -1032,4 +1145,221 @@ void ZoomBar::mouseDrag (const juce::MouseEvent& e)
     // measured in screen pixels (300 px = the whole range), so resizing the window under the cursor can't feed back
     const float dx = (float) (e.getScreenX() - e.getMouseDownScreenX());
     change (startValue + dx / 300.f * (kMax - kMin));
+}
+
+// ============================================================================================
+//  KEYS keyboard
+// ============================================================================================
+namespace
+{
+const char* const kNoteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+const int kWhitePc[7] = { 0, 2, 4, 5, 7, 9, 11 };
+bool isBlackPc (int pc) { return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10; }
+int blackBoundary (int pc) { return pc == 1 ? 1 : pc == 3 ? 2 : pc == 6 ? 4 : pc == 8 ? 5 : 6; }
+}
+
+KeysOverlay::KeysOverlay()
+{
+    for (auto* b : { &clearBtn, &offBtn, &useBtn }) addAndMakeVisible (*b);
+    useBtn.primary = true;
+    clearBtn.onClick = [this] { mask = 0; root = 0; repaint(); };
+    offBtn.onClick = [this] { setVisible (false); if (wasOn && onOff) onOff(); };
+    useBtn.onClick = [this]
+    {
+        setVisible (false);
+        if (mask == 0) { if (onOff) onOff(); return; }
+        if (onUse) onUse (root, mask);
+    };
+    setVisible (false);
+}
+
+void KeysOverlay::open (int r, unsigned m, bool on)
+{
+    root = r; mask = m; wasOn = on; lastPc = -1;
+    offBtn.setButtonText (on ? "TURN OFF" : "CANCEL");
+    setVisible (true);
+    toFront (false);
+    resized();
+    repaint();
+}
+
+juce::Rectangle<float> KeysOverlay::pianoArea() const
+{
+    const auto b = box().toFloat();
+    return { b.getX() + 50.f, b.getY() + 76.f, b.getWidth() - 100.f, 170.f };
+}
+
+juce::Rectangle<float> KeysOverlay::keyRect (int pc) const
+{
+    const auto a = pianoArea();
+    const float ww = a.getWidth() / 7.f;
+    if (isBlackPc (pc))
+    {
+        const float cx = a.getX() + ww * (float) blackBoundary (pc);
+        return { cx - ww * 0.30f, a.getY(), ww * 0.60f, a.getHeight() * 0.60f };
+    }
+    int i = 0;
+    for (; i < 7; ++i) if (kWhitePc[i] == pc) break;
+    return { a.getX() + ww * (float) i, a.getY(), ww, a.getHeight() };
+}
+
+int KeysOverlay::hit (juce::Point<float> p) const
+{
+    for (int pc = 0; pc < 12; ++pc) if (isBlackPc (pc) && keyRect (pc).contains (p)) return pc;
+    for (int pc = 0; pc < 12; ++pc) if (! isBlackPc (pc) && keyRect (pc).contains (p)) return pc;
+    return -1;
+}
+
+void KeysOverlay::mouseDown (const juce::MouseEvent& e)
+{
+    const int pc = hit (e.position);
+    if (pc < 0) return;
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    const bool on = (mask >> pc) & 1u;
+    if (on && lastPc == pc && now - lastT < 380.0) root = pc;                    // double tap: this note becomes the root
+    else if (on)
+    {
+        mask &= ~(1u << pc);
+        if (root == pc)
+        {
+            root = 0;
+            for (int i = 0; i < 12; ++i) if ((mask >> i) & 1u) { root = i; break; }
+        }
+    }
+    else
+    {
+        mask |= 1u << pc;
+        if (juce::BigInteger ((int) mask).countNumberOfSetBits() == 1) root = pc;
+    }
+    lastPc = pc; lastT = now;
+    repaint();
+}
+
+void KeysOverlay::resized()
+{
+    const auto b = box();
+    const int bw = 190, gap = 12, y = b.getBottom() - 22 - 40;
+    int x = b.getCentreX() - (3 * bw + 2 * gap) / 2;
+    for (auto* btn : { &clearBtn, &offBtn, &useBtn }) { btn->setBounds (x, y, bw, 40); x += bw + gap; }
+}
+
+void KeysOverlay::paint (juce::Graphics& g)
+{
+    g.fillAll (juce::Colour (0xcc020508));
+    const auto bx = box().toFloat();
+    ui::glowRect (g, bx, ui::green, 16.f, 0.8f);
+    ui::card (g, bx, ui::green, 16.f, 0.6f);
+    ui::caption (g, "KEYBOARD", { bx.getX() + 30.f, bx.getY() + 24.f, bx.getWidth() - 60.f, 20.f }, ui::green, 11.f);
+    g.setColour (ui::muted);
+    g.setFont (ui::font (12.f));
+    g.drawText ("Tap the notes you want. Double-tap a chosen note to make it the root (pink).",
+                juce::Rectangle<float> (bx.getX() + 30.f, bx.getY() + 46.f, bx.getWidth() - 60.f, 18.f), juce::Justification::centredLeft);
+
+    for (int pass = 0; pass < 2; ++pass)                                          // white keys first, black on top
+        for (int pc = 0; pc < 12; ++pc)
+        {
+            if (isBlackPc (pc) != (pass == 1)) continue;
+            const auto r = keyRect (pc).reduced (1.5f);
+            const bool sel = (mask >> pc) & 1u, isRoot = sel && pc == root;
+            const auto base = pass == 1 ? juce::Colour (0xff111c26) : juce::Colour (0xff1c2a38);
+            const auto col = isRoot ? ui::pink : (sel ? ui::green : base);
+            g.setColour (col);
+            g.fillRoundedRectangle (r, 6.f);
+            g.setColour (sel ? col.brighter (0.2f) : ui::line);
+            g.drawRoundedRectangle (r, 6.f, 1.2f);
+            g.setColour (sel ? juce::Colour (0xff04120e) : ui::silver);
+            g.setFont (ui::mono (pass == 1 ? 10.f : 12.f));
+            g.drawText (kNoteNames[pc], r.withTrimmedBottom (6.f), juce::Justification::centredBottom);
+        }
+
+    juce::String read;
+    if (mask == 0) read = "TAP THE NOTES YOU WANT";
+    else
+    {
+        read = kNoteNames[root];
+        for (int i = 0; i < 12; ++i) if (i != root && ((mask >> i) & 1u)) read << "  " << kNoteNames[i];
+    }
+    ui::caption (g, read, { bx.getX() + 30.f, bx.getY() + 258.f, bx.getWidth() - 60.f, 22.f }, ui::fg, 13.f, juce::Justification::centred, 0.2f);
+}
+
+// ============================================================================================
+//  STYLE page
+// ============================================================================================
+StyleOverlay::StyleOverlay (TB303Processor& p) : proc (p)
+{
+    for (auto* b : { &backBtn, &switchBtn, &savedBtn, &folderBtn, &filesBtn, &saveBtn, &loadBtn, &forgetBtn }) addAndMakeVisible (*b);
+    backBtn.onClick   = [this] { setVisible (false); if (onBack) onBack(); };
+    switchBtn.onClick = [this] { proc.setStyleOn (! proc.styleIsOn()); refresh(); };
+    savedBtn.onClick  = [this] { if (onSavedFolder) onSavedFolder(); };
+    folderBtn.onClick = [this] { if (onFolder) onFolder(); };
+    filesBtn.onClick  = [this] { if (onFiles) onFiles(); };
+    saveBtn.onClick   = [this] { if (onSave) onSave(); };
+    loadBtn.onClick   = [this] { if (onLoad) onLoad(); };
+    forgetBtn.onClick = [this] { proc.forgetStyle(); refresh(); };
+    setVisible (false);
+}
+
+void StyleOverlay::open()
+{
+    setVisible (true);
+    toFront (false);
+    sig = {};
+    refresh();
+}
+
+void StyleOverlay::refresh()
+{
+    const bool has = proc.styleLoaded(), on = proc.styleIsOn(), busy = proc.styleIsBusy();
+    const auto s = juce::String (has ? 1 : 0) + juce::String (on ? 1 : 0) + juce::String (busy ? 1 : 0) + juce::String (proc.styleIsReady() ? 1 : 0)
+                   + (busy ? proc.styleBusyText() : proc.styleSummary());
+    if (s == sig) return;
+    sig = s;
+    switchBtn.setEnabled (has);
+    switchBtn.setToggleState (on, juce::dontSendNotification);
+    switchBtn.setButtonText (on ? "STYLE ON" : "STYLE OFF");
+    saveBtn.setEnabled (has);
+    forgetBtn.setEnabled (has);
+    for (auto* b : { &savedBtn, &folderBtn, &filesBtn }) b->setEnabled (! busy);
+    repaint();
+}
+
+void StyleOverlay::resized()
+{
+    backBtn.setBounds (26, 22, 150, 48);
+    switchBtn.setBounds (getWidth() - 30 - 260, 128, 260, 64);
+    const int w = (getWidth() - 60 - 40) / 3, h = 86;
+    auto row = [&] (int y, std::initializer_list<NButton*> bs) { int x = 30; for (auto* b : bs) { b->setBounds (x, y, w, h); x += w + 20; } };
+    row (330, { &savedBtn, &folderBtn, &filesBtn });
+    row (500, { &saveBtn, &loadBtn });
+    row (670, { &forgetBtn });
+}
+
+void StyleOverlay::paint (juce::Graphics& g)
+{
+    g.fillAll (ui::bg);
+    ui::caption (g, "STYLE", { 200.f, 26.f, 400.f, 40.f }, ui::fg, 26.f, juce::Justification::centredLeft, 0.3f);
+
+    const juce::Rectangle<float> card (30.f, 100.f, (float) getWidth() - 60.f, 120.f);
+    ui::card (g, card, ui::green, 16.f, 0.4f);
+    const bool ready = proc.styleIsReady();
+    const juce::Rectangle<float> dot (card.getX() + 24.f, card.getCentreY() - 8.f, 16.f, 16.f);
+    if (ready) ui::glowRect (g, dot, ui::green, 8.f, 1.f);
+    g.setColour (ready ? ui::green : ui::muted.withAlpha (0.5f));
+    g.fillEllipse (dot);
+    juce::String t = proc.styleLoaded() ? proc.styleSummary()
+                                        : (proc.styleIsBusy() ? "Reading the save folder..." : "No style learned yet");
+    if (proc.styleIsBusy()) t = proc.styleBusyText() + (proc.styleLoaded() ? "   " + t : juce::String());
+    g.setColour (ui::fg);
+    g.setFont (ui::font (15.f));
+    g.drawFittedText (t, juce::Rectangle<int> ((int) card.getX() + 56, (int) card.getY() + 14, (int) card.getWidth() - 56 - 300, (int) card.getHeight() - 28),
+                      juce::Justification::centredLeft, 4);
+
+    auto head = [&] (const char* s, int y) { ui::caption (g, s, { 34.f, (float) y, 300.f, 20.f }, ui::muted, 11.f, juce::Justification::centredLeft, 0.3f); };
+    head ("LEARN", 296);
+    head ("KEEP", 466);
+    head ("RESET", 636);
+    g.setColour (ui::muted);
+    g.setFont (ui::font (12.f));
+    g.drawFittedText ("SAVED FOLDER reads the .mid files of your TB303 Gen folder. GENERATE then follows what the files do: rhythm, accents, favourite notes, scales.",
+                      juce::Rectangle<int> (34, 780, getWidth() - 68, 40), juce::Justification::topLeft, 2);
 }

@@ -7,22 +7,37 @@
 // ============================================================================================
 namespace ui
 {
-const juce::Colour bg     { 0xff05090e };
-const juce::Colour panel  { 0xff0a1118 };
-const juce::Colour panel2 { 0xff0f1923 };
-const juce::Colour line   { 0xff1b2a36 };
-const juce::Colour fg     { 0xffe8eef6 };
-const juce::Colour muted  { 0xff7d8aa0 };
-const juce::Colour green  { 0xff5ef2c8 };       // mint
-const juce::Colour cyan   { 0xff4cc9f0 };
-const juce::Colour violet { 0xff7b8cff };
-const juce::Colour silver { 0xffb9c6d8 };
-const juce::Colour pink   { 0xffff5c8a };
+// Easter egg: click the title (or triple-click the roll) and every colour moves round the colour wheel, same theme.
+// gHue is in turns (0..1). The palette below is rebuilt by setHue(); widgets that keep a colour of their own store the
+// base colour and pass it through rot() when they paint. A new editor always starts back at 0.
+inline float gHue = 0.f;
+inline juce::Colour rot (juce::Colour c) { return gHue == 0.f ? c : c.withRotatedHue (gHue); }
+
+inline juce::Colour bg     { 0xff05090e };
+inline juce::Colour panel  { 0xff0a1118 };
+inline juce::Colour panel2 { 0xff0f1923 };
+inline juce::Colour line   { 0xff1b2a36 };
+inline juce::Colour fg     { 0xffe8eef6 };
+inline juce::Colour muted  { 0xff7d8aa0 };
+inline juce::Colour green  { 0xff5ef2c8 };       // mint
+inline juce::Colour cyan   { 0xff4cc9f0 };
+inline juce::Colour violet { 0xff7b8cff };
+inline juce::Colour silver { 0xffb9c6d8 };
+inline juce::Colour pink   { 0xffff5c8a };
+
+inline void setHue (float h)
+{
+    gHue = h - std::floor (h);
+    bg = rot (juce::Colour (0xff05090e));     panel = rot (juce::Colour (0xff0a1118));  panel2 = rot (juce::Colour (0xff0f1923));
+    line = rot (juce::Colour (0xff1b2a36));   fg = rot (juce::Colour (0xffe8eef6));     muted = rot (juce::Colour (0xff7d8aa0));
+    green = rot (juce::Colour (0xff5ef2c8));  cyan = rot (juce::Colour (0xff4cc9f0));   violet = rot (juce::Colour (0xff7b8cff));
+    silver = rot (juce::Colour (0xffb9c6d8)); pink = rot (juce::Colour (0xffff5c8a));
+}
 
 inline juce::Colour lfoColour (int i)
 {
     static const juce::uint32 c[4] = { 0xff5ef2c8, 0xff4cc9f0, 0xff7b8cff, 0xffe58cff };
-    return juce::Colour (c[i & 3]);
+    return rot (juce::Colour (c[i & 3]));
 }
 
 inline juce::Colour steel (float alpha) { return juce::Colour::fromRGBA (125, 150, 175, (juce::uint8) juce::jlimit (0.f, 255.f, alpha * 255.f)); }
@@ -73,7 +88,8 @@ inline void card (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour tint
 class NebuleLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-    NebuleLookAndFeel();
+    NebuleLookAndFeel() { refresh(); }
+    void refresh();                                  // (re)read the palette
     void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour&, bool, bool) override;
     void drawButtonText (juce::Graphics&, juce::TextButton&, bool, bool) override;
     void drawComboBox (juce::Graphics&, int w, int h, bool down, int, int, int, int, juce::ComboBox&) override;
@@ -87,7 +103,7 @@ class NButton : public juce::TextButton
 public:
     enum Icon { none, dice, prev, next, play, stop, cross };
     explicit NButton (const juce::String& text, juce::Colour c = ui::green, Icon i = none)
-        : juce::TextButton (text), neon (c), icon (i) {}
+        : juce::TextButton (text), neon (c), icon (i) {}      // `neon` is the base colour; painted through ui::rot()
     void paintButton (juce::Graphics&, bool over, bool down) override;
     juce::Colour neon;
     Icon icon;
@@ -155,7 +171,7 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     bool generatorCard() const { return generator; }
-    juce::Colour colour;
+    juce::Colour colour0;                                // base colour (see ui::rot)
 private:
     juce::Rectangle<float> track() const;                // where the handle can travel
     void update (const juce::MouseEvent&);
@@ -185,7 +201,29 @@ private:
     juce::String name;
     PRef pr;
     int dest;
-    juce::Colour colour;
+    juce::Colour colour0;
+    bool generator;
+};
+
+// horizontal fader: name on the left, value on the right (Notes, Octave)
+class HFader : public juce::Component
+{
+public:
+    HFader (TB303Processor&, const juce::String& name, const juce::String& id, int dest, juce::Colour col, bool generator);
+    std::function<void()> onGestureStart, onGestureEnd;
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+private:
+    juce::Rectangle<float> track() const;
+    void update (const juce::MouseEvent&);
+    TB303Processor& proc;
+    juce::String name;
+    PRef pr;
+    int dest;
+    juce::Colour colour0;
     bool generator;
 };
 
@@ -205,7 +243,7 @@ private:
     void paintScope (juce::Graphics&, juce::Rectangle<float>);
     TB303Processor& proc;
     int index;
-    juce::Colour colour;
+    juce::Colour colour0;
     PRef shape;
     juce::Rectangle<float> titleR, scopeR;
     std::array<juce::Rectangle<float>, tb::kShapes> shapeR;
@@ -220,6 +258,7 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
+    std::function<void()> onEgg;                         // triple-click
 private:
     bool dragStarted = false;
     struct Pt { float x, y, px, py; };
@@ -252,6 +291,48 @@ private:
     std::vector<std::unique_ptr<NButton>> buttons;
 };
 
+// KEYS: tap the notes you want on a keyboard; double-tap a chosen note to make it the root (pink)
+class KeysOverlay : public juce::Component
+{
+public:
+    KeysOverlay();
+    std::function<void (int, unsigned)> onUse;           // root pitch class, pitch-class mask
+    std::function<void()> onOff;
+    void open (int rootPc, unsigned mask, bool wasOn);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+private:
+    juce::Rectangle<float> pianoArea() const;
+    juce::Rectangle<float> keyRect (int pc) const;
+    int hit (juce::Point<float>) const;
+    juce::Rectangle<int> box() const { return juce::Rectangle<int> (0, 0, 720, 380).withCentre (getLocalBounds().getCentre()); }
+    int root = 0, lastPc = -1;
+    unsigned mask = 0;
+    bool wasOn = false;
+    double lastT = 0.0;
+    NButton clearBtn { "CLEAR", ui::violet }, offBtn { "CANCEL", ui::violet }, useBtn { "USE THESE NOTES", ui::green };
+};
+
+// STYLE: a full-screen page with big targets: learn from files, keep, reset
+class StyleOverlay : public juce::Component
+{
+public:
+    explicit StyleOverlay (TB303Processor&);
+    std::function<void()> onSavedFolder, onFolder, onFiles, onSave, onLoad, onBack;
+    void open();
+    void refresh();
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override {}
+private:
+    TB303Processor& proc;
+    NButton backBtn { "<  BACK", ui::silver }, switchBtn { "STYLE OFF", ui::green },
+            savedBtn { "SAVED FOLDER", ui::green }, folderBtn { "PICK A FOLDER", ui::cyan }, filesBtn { "PICK FILES", ui::cyan },
+            saveBtn { "SAVE STYLE", ui::green }, loadBtn { "LOAD STYLE", ui::cyan }, forgetBtn { "FORGET STYLE", ui::pink };
+    juce::String sig;
+};
+
 // ---------------------------------------------------------------------------------------------
 class TB303Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
@@ -275,22 +356,34 @@ private:
     void refreshUndo();
     void hookGestures (XYCard&);
     void hookGestures (VFader&);
+    void hookGestures (HFader&);
     void doLoad();
     void doDownload();
     void doSaveToFolder();
+    void askName (const juce::String& title, const juce::String& msg, std::function<void (juce::String)> done);
+    void heartPress();
+    void renamePress();
+    void styleFromFiles (bool folder);
+    void saveStylePress();
+    void loadStylePress();
+    void keysPress();
+    void refreshSetupButtons();
+    void showNotice (const TB303Processor::Notice&);
     void showSaved (const juce::File&, bool revealFolder);
     void infoText (juce::AttributedString& out) const;
     std::vector<int> linkedLfos (int panelFocus) const;
     void setupCombo (juce::ComboBox&, const char* paramId);
     void applyZoom (float z);
+    void shiftColours (bool reset);                                 // easter egg
     void relayout() { if (lfos[3] != nullptr) { resized(); repaint(); } }   // some hosts/standalone only give the window its final size after we are shown
     int tickCount = 0;
+    bool firstGenerate = true;
     void fitToScreen();
 
     using ComboAtt  = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using ButtonAtt = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    // everything lives in a 1100 x 968 content component that is scaled to the window size
+    // everything lives in a 1100 x 1270 content component that is scaled to the window size
     struct Content : juce::Component
     {
         std::function<void (juce::Graphics&)> onPaint;
@@ -298,15 +391,16 @@ private:
         void paint (juce::Graphics& g) override { if (onPaint) onPaint (g); }
         void mouseDown (const juce::MouseEvent& e) override { if (onDown) onDown (e.position); }
     };
-    static constexpr int kW = 1100, kH = 968;
+    static constexpr int kW = 1100, kH = 1270;
 
     TB303Processor& proc;
     NebuleLookAndFeel laf;
     Content content;
     RollView roll;
 
-    XYCard density, feel, filter, envelope, kit;
-    VFader bars, variation, volume, bpm;
+    XYCard groove, filter, envelope;
+    HFader notes, octave, delTime, revAmt, distSend, distColor;
+    VFader bars, variation, bpm, mixBass, mixKick, mixHat, mixDel, mixRev, mixDist;      // the mixer strips are vertical, like the web app
     std::array<std::unique_ptr<LfoCard>, 4> lfos;
 
     juce::ComboBox rootBox, scaleBox, waveBox;
@@ -319,22 +413,40 @@ private:
             folderBtn   { "SAVE TO FOLDER", ui::violet },
             undoBtn     { "UNDO", ui::cyan },
             redoBtn     { "REDO", ui::cyan },
-            drumsBtn    { "DRUMS", ui::cyan },
-            synthBtn    { "BASS SYNTH", ui::green },
+            muteBass    { "M", ui::pink },
+            muteKick    { "M", ui::pink },
+            muteHat     { "M", ui::pink },
+            onDel       { "OFF", ui::pink },                            // delay / reverb / distortion: ON / OFF instead of M
+            onRev       { "OFF", ui::pink },
+            onDist      { "OFF", ui::pink },
+            soloBass    { "S", ui::green },
+            soloKick    { "S", ui::cyan },
+            soloHat     { "S", ui::violet },
+            soloDel     { "S", ui::cyan },
+            soloRev     { "S", ui::violet },
+            soloDist    { "S", ui::pink },
             closeBtn    { "", ui::silver, NButton::cross };
     LockButton lockBtn { "BPM" };
     ZoomBar zoomBar;
+    struct TitleHit : juce::Component { std::function<void (int)> onClick; void mouseDown (const juce::MouseEvent& e) override { if (onClick) onClick (e.getNumberOfClicks()); } } titleHit;
+    bool rainbow = false;                                           // triple-click on the title: slow hue drift (one lap per minute)
     NButton fitBtn { "FIT", ui::cyan };
     ModalOverlay modal;
+    KeysOverlay keysPage;
+    StyleOverlay stylePage { proc };
+    NButton styleBtn { "STYLE", ui::violet }, keysBtn { "KEYS", ui::green }, heartBtn { "PLAY SAVED LOOPS", ui::pink }, renBtn { "RENAME", ui::cyan };
+    std::vector<std::unique_ptr<NButton>> rootBtns, scaleBtns;          // ROOT / SCALE rows of the setup panel (the combos stay hidden for the host)
+    juce::Rectangle<int> rowR2, styleDotR;
     std::unique_ptr<juce::FileChooser> chooser;
 
     std::unique_ptr<ComboAtt>  rootAtt, scaleAtt, waveAtt;
-    std::unique_ptr<ButtonAtt> synthAtt, drumsAtt, runAtt;
+    std::unique_ptr<ButtonAtt> runAtt;
+    std::vector<std::unique_ptr<ButtonAtt>> mixAtt;               // mute / on-off / solo buttons of the mixer
 
     int focus = fNone;
-    juce::Rectangle<int> genPanel, synthPanel, drumPanel, setupPanel, lfoHeader, genTitleR, synthTitleR;
+    juce::Rectangle<int> genPanel, synthPanel, mixPanel, setupPanel, lfoHeader, genTitleR, synthTitleR;
     juce::Rectangle<int> rollR, infoR, linkedLabel;
-    juce::Rectangle<int> setupLabels[3];
+    juce::Rectangle<int> setupLabels[2], waveLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TB303Editor)
 };

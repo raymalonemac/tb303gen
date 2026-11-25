@@ -8,7 +8,7 @@ namespace tb
 {
 inline juce::StringArray scaleNames()
 {
-    return { "Minor pentatonic", "Phrygian", "Natural minor", "Phrygian dominant", "Harmonic minor" };
+    return { "Minor pentatonic", "Phrygian", "Natural minor", "Phrygian dominant", "Harmonic minor", "Custom" };
 }
 
 inline juce::String noteName (int midiNote)
@@ -22,7 +22,7 @@ inline bool writeMidiFile (const Pattern& pat, double bpm, const juce::File& fil
     constexpr int ppq = 480, stepT = ppq / 4, gateT = (int) (stepT * 0.55), overlapT = 12;
 
     juce::MidiMessageSequence seq;
-    seq.addEvent (juce::MidiMessage::textMetaEvent (3, "TB-303 Bassline"), 0.0);
+    seq.addEvent (juce::MidiMessage::textMetaEvent (3, "BASSLINER303 Bassline"), 0.0);
     seq.addEvent (juce::MidiMessage::tempoMetaEvent ((int) (60000000.0 / juce::jmax (1.0, bpm))), 0.0);
     seq.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
 

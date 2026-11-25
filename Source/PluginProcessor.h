@@ -6,7 +6,9 @@
 #include <memory>
 #include "AcidVoice.h"
 #include "Drums.h"
+#include "Fx.h"
 #include "Pattern.h"
+#include "Style.h"
 #include "Modulation.h"
 
 // a line plus the dice behind it
@@ -16,6 +18,9 @@ struct BassLine
     tb::Seed seed {};
     bool hasSeed = false;
     int root = 36, scale = 0;
+    std::uint16_t cmask = 0;                             // intervals of the custom (KEYS) scale, when scale == tb::kCustomScale
+    bool useStyle = false;                               // generated with STYLE on: the dice are read through sty
+    tb::Style sty {};
 };
 
 class TB303Processor : public juce::AudioProcessor,
@@ -34,7 +39,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "TB-303 Gen"; }
+    const juce::String getName() const override { return "BASSLINER303"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return false; }
@@ -60,6 +65,40 @@ public:
     juce::String getLoadedName() const { return loadedName; }
     int currentRoot() const { return lastRoot.load(); }
     int currentScale() const { return lastScale.load(); }
+
+    // ---- KEYS: pick the notes on a keyboard; they replace root + scale for GENERATE
+    bool keysActive() const { return keysOn && keysPcs != 0; }
+    int keysRootPc() const { return keysRoot; }
+    std::uint16_t keysPcMask() const { return keysPcs; }
+    void setKeys (int rootPc, std::uint16_t pcMask);     // on + re-reads the line on screen in these notes (undoable)
+    void keysOff();
+
+    // ---- STYLE: learn the taste of a folder of .mid files
+    bool styleLoaded() const { return styleHas; }
+    bool styleIsOn() const { return styleOn && styleHas; }
+    bool styleIsReady() const { return styleHas && styleReady; }
+    bool styleIsBusy() const { return styleBusy.load(); }
+    juce::String styleBusyText() const;                  // "READING 12 / 40"
+    juce::String styleSummary() const;
+    void setStyleOn (bool on);
+    void forgetStyle();
+    void learnFromFiles (const juce::Array<juce::File>& files);          // runs in the background; a notice appears when done
+    void learnFromFolder (const juce::File& dir);
+    bool saveStyleTo (const juce::File& file) const;
+    bool loadStyleFrom (const juce::File& file);
+    juce::Array<juce::File> savedStyleFiles() const;
+    struct Notice { bool has = false, error = false; juce::String title, text; };
+    Notice takeNotice();                                 // one message from the background work, for the editor to show
+
+    // ---- saved loops: plays the .mid files of the save folder, oldest first
+    bool jukeIsOn() const { return jukeOn; }
+    int jukeCount() const { return jukeList.size(); }
+    juce::String jukeFileName() const { return jukeOn && jukeIdx < jukeList.size() ? jukeList[jukeIdx].getFileName() : juce::String(); }
+    juce::String jukeStart();                            // "" = playing, otherwise why not
+    void jukeStop();
+    void jukeStep (int d);
+    juce::String jukeRemove();                           // moves the file on screen to TB303Gen_DELETED; "" = ok
+    juce::String jukeRename (const juce::String& added); // adds a name to the end of the file name; "" = ok
 
     // tweaker mode is always on: every generator fader reshapes the current line live, with undo/redo per gesture
     void beginTweakGesture();
@@ -145,12 +184,42 @@ private:
     AcidVoice voice;
     Kick606 kick;
     Hat606 hat;
+    tb::DistFx distFx;
+    tb::DelayFx delayFx;
+    tb::ReverbFx reverbFx;
+    float smDry = 1.f, smWet = 0.f, smDir = 1.f, smSend = 1.f, smDel = 0.f, smRev = 0.f, smRevOut = 0.f;   // smoothed mixer gains (audio thread)
 
     // previously generated basslines (message thread only)
     struct HistItem { BassLine line; Gen gen; juce::String name; };
     std::vector<HistItem> history;
     int histPos = -1;
     std::atomic<int> lastRoot { 36 }, lastScale { 0 };
+    std::atomic<std::uint16_t> lastMask { 0 };
+    std::vector<int> scaleBuf;                           // custom-scale intervals on the audio thread (reserved in prepareToPlay)
+
+    bool keysOn = false;
+    int keysRoot = 0;
+    std::uint16_t keysPcs = 0;
+    std::uint16_t keysIvMask() const;
+
+    tb::Style style {};
+    bool styleHas = false, styleOn = false, styleReady = false, styleManual = false;
+    std::atomic<bool> styleBusy { false };
+    std::atomic<int> styleDone { 0 }, styleTotal { 0 };
+    std::unique_ptr<juce::Thread> styleThread;
+    Notice notice;
+    juce::SpinLock noticeLock;
+    void startAnalysis (juce::Array<juce::File> files, bool manual);
+    void finishAnalysis (const tb::StyleResult& res, bool manual);
+    void applyStyleFaders();
+    void autoStyle();
+    int pickScale (int scaleIdx, juce::Random& rng) const;
+
+    bool jukeOn = false, jukeBusy = false;
+    juce::Array<juce::File> jukeList;
+    int jukeIdx = 0;
+    void jukeApply (int i);
+    void purgeHistory (const juce::String& name);
     juce::String loadedName;
 
     std::vector<Gen> undoStack, redoStack;

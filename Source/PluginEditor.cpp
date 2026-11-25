@@ -1,16 +1,25 @@
 #include "PluginEditor.h"
 
 TB303Editor::TB303Editor (TB303Processor& p)
-    : AudioProcessorEditor (&p), proc (p), roll (p),
-      density  (p, "DENSITY",  "notes",   "accents", tb::dNotes,  tb::dAccents, ui::green,  "NOTES",   "ACCENTS", true),
-      feel     (p, "FEEL",     "slides",  "octave",  tb::dSlides, tb::dOctave,  ui::cyan,   "SLIDES",  "OCTAVE",  true),
+    : AudioProcessorEditor (&p), proc ((ui::setHue (0.f), p)), roll (p),
+      groove   (p, "GROOVE",   "slides",  "accents", tb::dSlides, tb::dAccents, ui::green,  "SLIDES",  "ACCENTS", true),
       filter   (p, "FILTER",   "cutoff",  "reso",    tb::dCutoff, tb::dReso,    ui::green,  "CUTOFF",  "RESO",    false),
       envelope (p, "ENVELOPE", "envmod",  "decay",   tb::dEnvMod, tb::dDecay,   ui::violet, "ENV MOD", "DECAY",   false),
-      kit      (p, "KIT",      "kickvol", "hatvol",  tb::dKick,   tb::dHat,     ui::cyan,   "KICK",    "HAT",     false),
+      notes     (p, "NOTES",     "notes",     tb::dNotes,      ui::green,  true),
+      octave    (p, "OCTAVE",    "octave",    tb::dOctave,     ui::cyan,   true),
+      delTime   (p, "DLY TIME",  "deltime",   -1,              ui::cyan,   false),
+      revAmt    (p, "REV AMT",   "revamt",    -1,              ui::violet, false),
+      distSend  (p, "D.SEND",    "distdrive", -1,              ui::pink,   false),
+      distColor (p, "COLOR",     "distcolor", -1,              ui::silver, false),
       bars      (p, "BARS",      "bars",      -1,              ui::cyan,   true),
       variation (p, "VARIATION", "variation", tb::dVariation,  ui::violet, true),
-      volume    (p, "VOLUME",    "volume",    tb::dVolume,     ui::silver, false),
-      bpm       (p, "",          "tempo",     -1,              ui::silver, false)
+      bpm       (p, "",          "tempo",     -1,              ui::silver, false),
+      mixBass   (p, "BASS",      "volume",    tb::dVolume,     ui::green,  false),
+      mixKick   (p, "KICK",      "kickvol",   tb::dKick,       ui::cyan,   false),
+      mixHat    (p, "HATS",      "hatvol",    tb::dHat,        ui::violet, false),
+      mixDel    (p, "DELAY",     "delsend",   -1,              ui::cyan,   false),
+      mixRev    (p, "REVERB",    "revsend",   -1,              ui::violet, false),
+      mixDist   (p, "DIST",      "distlevel", -1,              ui::pink,   false)
 {
     setLookAndFeel (&laf);
     addAndMakeVisible (content);
@@ -23,13 +32,26 @@ TB303Editor::TB303Editor (TB303Processor& p)
     };
 
     setResizable (true, true);
-    setResizeLimits (550, 484, 2200, 1936);                 // 50 % .. 200 %
+    setResizeLimits (550, 635, 2200, 2540);                 // 50 % .. 200 %
     getConstrainer()->setFixedAspectRatio ((double) kW / (double) kH);
 
     content.addAndMakeVisible (roll);
-    for (auto* c : { &density, &feel, &filter, &envelope, &kit }) content.addAndMakeVisible (*c);
-    for (auto* f : { &bars, &variation, &volume, &bpm }) content.addAndMakeVisible (*f);
-    hookGestures (density); hookGestures (feel);
+    for (auto* c : { &groove, &filter, &envelope }) content.addAndMakeVisible (*c);
+    for (auto* f : { &bars, &variation, &bpm }) content.addAndMakeVisible (*f);
+    for (auto* h : { &delTime, &revAmt, &distSend, &distColor }) content.addAndMakeVisible (*h);
+    for (auto* v : { &mixBass, &mixKick, &mixHat, &mixDel, &mixRev, &mixDist }) content.addAndMakeVisible (*v);
+    {   // touching a fader of an effect that is OFF switches it on (the horizontal faders do not)
+        auto wake = [this] (const char* id)
+        {
+            if (auto* p = proc.apvts.getParameter (id))
+                if (p->getValue() < 0.5f) { p->beginChangeGesture(); p->setValueNotifyingHost (1.f); p->endChangeGesture(); }
+        };
+        mixDel.onGestureStart  = [wake] { wake ("delon"); };
+        mixRev.onGestureStart  = [wake] { wake ("revon"); };
+        mixDist.onGestureStart = [wake] { wake ("diston"); };
+    }
+    content.addAndMakeVisible (notes); content.addAndMakeVisible (octave);
+    hookGestures (groove); hookGestures (notes); hookGestures (octave);
     hookGestures (bars);    hookGestures (variation);
 
     for (int i = 0; i < 4; ++i)
@@ -51,19 +73,70 @@ TB303Editor::TB303Editor (TB303Processor& p)
     rootAtt  = std::make_unique<ComboAtt> (proc.apvts, "root", rootBox);
     scaleAtt = std::make_unique<ComboAtt> (proc.apvts, "scale", scaleBox);
     waveAtt  = std::make_unique<ComboAtt> (proc.apvts, "wave", waveBox);
+    rootBox.setVisible (false);                                     // ROOT / SCALE are button rows now; the combos only carry the host parameters
+    scaleBox.setVisible (false);
 
-    for (auto* b : { &synthBtn, &drumsBtn, &runBtn })
+    {   // ROOT: random + 12 notes; SCALE: random + the five scales
+        static const char* const rn[13] = { "R", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        for (int i = 0; i < 13; ++i)
+        {
+            auto b = std::make_unique<NButton> (rn[i], ui::cyan);
+            b->onClick = [this, i] { if (auto* p = proc.apvts.getParameter ("root")) { p->beginChangeGesture(); p->setValueNotifyingHost (p->convertTo0to1 ((float) i)); p->endChangeGesture(); } };
+            content.addAndMakeVisible (*b);
+            rootBtns.push_back (std::move (b));
+        }
+        static const char* const sn[6] = { "R", "MINOR PENT", "PHRYGIAN", "NAT MINOR", "PHRYG DOM", "HARM MINOR" };
+        for (int i = 0; i < 6; ++i)
+        {
+            auto b = std::make_unique<NButton> (sn[i], ui::violet);
+            b->onClick = [this, i] { if (auto* p = proc.apvts.getParameter ("scale")) { p->beginChangeGesture(); p->setValueNotifyingHost (p->convertTo0to1 ((float) i)); p->endChangeGesture(); } };
+            content.addAndMakeVisible (*b);
+            scaleBtns.push_back (std::move (b));
+        }
+    }
+
+    for (auto* b : { &styleBtn, &keysBtn, &heartBtn, &renBtn }) content.addAndMakeVisible (*b);
+    renBtn.setVisible (false);
+    styleBtn.onClick = [this] { stylePage.open(); };
+    keysBtn.onClick  = [this] { keysPress(); };
+    heartBtn.onClick = [this] { heartPress(); };
+    renBtn.onClick   = [this] { renamePress(); };
+    keysPage.onUse = [this] (int r, unsigned m) { proc.setKeys (r, (std::uint16_t) m); refreshUndo(); };
+    keysPage.onOff = [this] { proc.keysOff(); };
+    stylePage.onBack = [this] { grabKeyboardFocus(); };
+    stylePage.onSavedFolder = [this] { proc.learnFromFolder (proc.saveFolder()); };
+    stylePage.onFolder = [this] { styleFromFiles (true); };
+    stylePage.onFiles  = [this] { styleFromFiles (false); };
+    stylePage.onSave   = [this] { saveStylePress(); };
+    stylePage.onLoad   = [this] { loadStylePress(); };
+
+    for (auto* b : { &runBtn, &muteBass, &muteKick, &muteHat, &onDel, &onRev, &onDist, &soloBass, &soloKick, &soloHat, &soloDel, &soloRev, &soloDist })
     {
         b->setClickingTogglesState (true);
         content.addAndMakeVisible (*b);
     }
-    synthAtt = std::make_unique<ButtonAtt> (proc.apvts, "synth", synthBtn);
-    drumsAtt = std::make_unique<ButtonAtt> (proc.apvts, "drums", drumsBtn);
+    {
+        struct B { NButton* b; const char* id; };
+        for (const auto& m : { B { &muteBass, "mutebass" }, B { &muteKick, "mutekick" }, B { &muteHat, "mutehat" },
+                               B { &onDel, "delon" }, B { &onRev, "revon" }, B { &onDist, "diston" },
+                               B { &soloBass, "solobass" }, B { &soloKick, "solokick" }, B { &soloHat, "solohat" },
+                               B { &soloDel, "solodel" }, B { &soloRev, "solorev" }, B { &soloDist, "solodist" } })
+            mixAtt.push_back (std::make_unique<ButtonAtt> (proc.apvts, m.id, *m.b));
+    }
     runAtt   = std::make_unique<ButtonAtt> (proc.apvts, "run", runBtn);
 
     generateBtn.primary = true;
     generateBtn.pulse = true;
-    generateBtn.onClick = [this] { proc.generatePattern(); refreshUndo(); };
+    generateBtn.onClick = [this]
+    {
+        proc.generatePattern(); refreshUndo();
+        if (firstGenerate)                                          // the first GENERATE after the editor opens also starts the preview loop
+        {
+            firstGenerate = false;
+            if (auto* run = proc.apvts.getParameter ("run"))
+                if (run->getValue() < 0.5f) run->setValueNotifyingHost (1.f);
+        }
+    };
     previousBtn.onClick = [this] { proc.previousPattern(); refreshUndo(); };
     nextBtn.onClick     = [this] { proc.nextPattern(); refreshUndo(); };
     loadBtn.onClick     = [this] { doLoad(); };
@@ -74,6 +147,13 @@ TB303Editor::TB303Editor (TB303Processor& p)
     closeBtn.onClick    = [this] { setFocus (fNone); };
 
     content.addAndMakeVisible (zoomBar);
+    content.addAndMakeVisible (titleHit);
+    titleHit.onClick = [this] (int clicks)
+    {
+        if (clicks >= 3) rainbow = ! rainbow;                       // triple-click: start / stop the slow rainbow
+        else if (! rainbow) shiftColours (false);                   // single click: a step round the wheel
+    };
+    roll.onEgg = [this] { rainbow = false; shiftColours (true); };
     content.addAndMakeVisible (fitBtn);
     zoomBar.onChange = [this] (float z) { applyZoom (z); };
     fitBtn.onClick   = [this] { fitToScreen(); };
@@ -82,6 +162,8 @@ TB303Editor::TB303Editor (TB303Processor& p)
         content.addAndMakeVisible (*b);
     closeBtn.setVisible (false);
 
+    content.addChildComponent (keysPage);
+    content.addChildComponent (stylePage);
     content.addChildComponent (modal);
     modal.setVisible (false);
 
@@ -111,6 +193,12 @@ void TB303Editor::hookGestures (XYCard& c)
     c.onGestureEnd   = [this] { proc.endTweakGesture(); refreshUndo(); };
 }
 
+void TB303Editor::hookGestures (HFader& f)
+{
+    f.onGestureStart = [this] { proc.beginTweakGesture(); };
+    f.onGestureEnd   = [this] { proc.endTweakGesture(); refreshUndo(); };
+}
+
 void TB303Editor::hookGestures (VFader& f)
 {
     f.onGestureStart = [this] { proc.beginTweakGesture(); };
@@ -128,8 +216,9 @@ void TB303Editor::refreshUndo()
 {
     undoBtn.setEnabled (proc.canUndo());
     redoBtn.setEnabled (proc.canRedo());
-    previousBtn.setEnabled (proc.historyIndex() > 0);
-    nextBtn.setEnabled (proc.historyIndex() < proc.historyCount() - 1);
+    const bool juke = proc.jukeIsOn();
+    previousBtn.setEnabled (juke ? proc.jukeCount() > 1 : proc.historyIndex() > 0);
+    nextBtn.setEnabled (juke ? proc.jukeCount() > 1 : proc.historyIndex() < proc.historyCount() - 1);
 }
 
 bool TB303Editor::keyPressed (const juce::KeyPress& k)
@@ -137,8 +226,18 @@ bool TB303Editor::keyPressed (const juce::KeyPress& k)
     if (k == juce::KeyPress::escapeKey)
     {
         if (modal.isVisible()) modal.close();
+        else if (keysPage.isVisible()) keysPage.setVisible (false);
+        else if (stylePage.isVisible()) stylePage.setVisible (false);
         else if (focus != fNone) setFocus (fNone);
         return true;
+    }
+    if (! k.getModifiers().isCommandDown() && ! k.getModifiers().isAltDown() && ! modal.isVisible() && ! keysPage.isVisible() && ! stylePage.isVisible())
+    {
+        if (k == juce::KeyPress::spaceKey)  { runBtn.setToggleState (! runBtn.getToggleState(), juce::sendNotificationSync); return true; }
+        if (k == juce::KeyPress::returnKey) { generateBtn.onClick(); return true; }
+        if (k == juce::KeyPress::leftKey)   { previousBtn.onClick(); return true; }
+        if (k == juce::KeyPress::rightKey)  { nextBtn.onClick();     return true; }
+        if (k == juce::KeyPress::downKey)   { doDownload();          return true; }
     }
     if (k.getModifiers().isCommandDown())                           // Cmd/Ctrl  +  -  0
     {
@@ -220,7 +319,7 @@ std::vector<int> TB303Editor::linkedLfos (int panelFocus) const
     if (panelFocus == fGen)
         mine = tb::kGenMask;
     else
-        for (int d : { (int) tb::dCutoff, (int) tb::dReso, (int) tb::dEnvMod, (int) tb::dDecay, (int) tb::dVolume, (int) tb::dPitch, (int) tb::dMaster })
+        for (int d : { (int) tb::dCutoff, (int) tb::dReso, (int) tb::dEnvMod, (int) tb::dDecay, (int) tb::dPitch, (int) tb::dMaster })
             mine |= 1u << d;
 
     std::vector<int> out;
@@ -243,6 +342,7 @@ void TB303Editor::layoutAll()
     undoBtn.setBounds (896, 10, 92, 38);
     redoBtn.setBounds (990, 10, 92, 38);
     zoomBar.setBounds (560, 12, 256, 34);
+    titleHit.setBounds (20, 8, 232, 42);
     fitBtn.setBounds (822, 10, 68, 38);
     rollR = { 20, 58, 1060, 132 };
     roll.setBounds (rollR);
@@ -264,9 +364,17 @@ void TB303Editor::layoutAll()
     }
 
     const bool normal = focus == fNone, fgen = focus == fGen, fsyn = focus == fSynth, flfo = focus >= fLfo0;
-    const int top = 276;
+    const int top = 322;
+    rowR2 = { 20, 272, 1060, 40 };
+    styleBtn.setBounds (16, 272, 210, 42);
+    keysBtn.setBounds (234, 272, 140, 42);
+    heartBtn.setBounds (382, 272, 330, 42);
+    renBtn.setBounds (720, 272, 140, 42);
+    styleDotR = { 200, 286, 12, 12 };
+    keysPage.setBounds (0, 0, kW, kH);
+    stylePage.setBounds (0, 0, kW, kH);
 
-    genPanel = synthPanel = drumPanel = setupPanel = lfoHeader = linkedLabel = {};
+    genPanel = synthPanel = mixPanel = setupPanel = lfoHeader = linkedLabel = waveLabel = {};
     genTitleR = synthTitleR = {};
 
     // --- which LFO cards go where
@@ -276,10 +384,10 @@ void TB303Editor::layoutAll()
     {
         genPanel   = { 20, top, 520, 252 };
         synthPanel = { 560, top, 520, 252 };
-        drumPanel  = { 20, top + 264, 300, 130 };
-        setupPanel = { 340, top + 264, 740, 130 };
-        lfoHeader  = { 20, top + 404, 1060, 16 };
-        lfoRowArea = { 20, top + 424, 1060, 262 };
+        mixPanel   = { 20, top + 264, 1060, 236 };            // full row: strips on the left, delay / reverb / distortion faders on the right
+        setupPanel = { 20, top + 512, 1060, 130 };
+        lfoHeader  = { 20, top + 654, 1060, 16 };
+        lfoRowArea = { 20, top + 674, 1060, 262 };
         shown = { 0, 1, 2, 3 };
     }
     else if (fgen || fsyn)
@@ -301,21 +409,28 @@ void TB303Editor::layoutAll()
 
     // --- generator + synth panels
     const bool showGen = normal || fgen, showSyn = normal || fsyn;
-    for (auto* c : { (juce::Component*) &density, (juce::Component*) &feel, (juce::Component*) &bars, (juce::Component*) &variation })
+    for (auto* c : { (juce::Component*) &groove, (juce::Component*) &notes, (juce::Component*) &octave, (juce::Component*) &bars, (juce::Component*) &variation })
         c->setVisible (showGen);
-    for (auto* c : { (juce::Component*) &filter, (juce::Component*) &envelope, (juce::Component*) &volume })
+    for (auto* c : { (juce::Component*) &filter, (juce::Component*) &envelope, (juce::Component*) &waveBox })
         c->setVisible (showSyn);
-    for (auto* c : { (juce::Component*) &kit, (juce::Component*) &drumsBtn, (juce::Component*) &rootBox, (juce::Component*) &scaleBox,
-                     (juce::Component*) &waveBox, (juce::Component*) &synthBtn, (juce::Component*) &bpm, (juce::Component*) &lockBtn })
+    for (auto& b : rootBtns)  b->setVisible (normal);
+    for (auto& b : scaleBtns) b->setVisible (normal);
+    for (auto* c : { (juce::Component*) &mixBass, (juce::Component*) &mixKick, (juce::Component*) &mixHat, (juce::Component*) &mixDel, (juce::Component*) &mixRev, (juce::Component*) &mixDist,
+                     (juce::Component*) &muteBass, (juce::Component*) &muteKick, (juce::Component*) &muteHat, (juce::Component*) &onDel, (juce::Component*) &onRev, (juce::Component*) &onDist,
+                     (juce::Component*) &soloBass, (juce::Component*) &soloKick, (juce::Component*) &soloHat, (juce::Component*) &soloDel, (juce::Component*) &soloRev, (juce::Component*) &soloDist,
+                     (juce::Component*) &delTime, (juce::Component*) &revAmt, (juce::Component*) &distSend, (juce::Component*) &distColor,
+                     (juce::Component*) &bpm, (juce::Component*) &lockBtn })
         c->setVisible (normal);
 
     if (showGen)
     {
         auto in = genPanel.reduced (16, 0).withTrimmedTop (44).withTrimmedBottom (14);
         const int fw = juce::jlimit (54, 84, in.getWidth() / 9), gap = 10;
-        const int cw = (in.getWidth() - 2 * fw - 3 * gap) / 2;
-        density.setBounds (in.removeFromLeft (cw));   in.removeFromLeft (gap);
-        feel.setBounds (in.removeFromLeft (cw));      in.removeFromLeft (gap);
+        const int cw = in.getWidth() - 2 * fw - 2 * gap;
+        auto left = in.removeFromLeft (cw);                  in.removeFromLeft (gap);
+        octave.setBounds (left.removeFromBottom (34));
+        notes.setBounds (left.removeFromBottom (34));        left.removeFromBottom (4);
+        groove.setBounds (left);
         bars.setBounds (in.removeFromLeft (fw));      in.removeFromLeft (gap);
         variation.setBounds (in.removeFromLeft (fw));
         genTitleR = { genPanel.getX() + 14, genPanel.getY() + 8, 170, 30 };
@@ -324,29 +439,47 @@ void TB303Editor::layoutAll()
     {
         auto in = synthPanel.reduced (16, 0).withTrimmedTop (44).withTrimmedBottom (14);
         const int fw = juce::jlimit (54, 84, in.getWidth() / 9), gap = 10;
-        const int cw = (in.getWidth() - fw - 3 * gap) / 2;
+        const int cw = (in.getWidth() - gap) / 2;
+        (void) fw;
         filter.setBounds (in.removeFromLeft (cw));    in.removeFromLeft (gap);
-        envelope.setBounds (in.removeFromLeft (cw));  in.removeFromLeft (gap);
-        volume.setBounds (in.removeFromLeft (fw));
+        envelope.setBounds (in.removeFromLeft (cw));
         synthTitleR = { synthPanel.getX() + 14, synthPanel.getY() + 8, 170, 30 };
+        const int wx = synthPanel.getRight() - 14 - 96 - (fsyn ? 52 : 0);        // WAVE sits in the synth panel header
+        waveLabel = { wx - 54, synthPanel.getY() + 12, 50, 24 };
+        waveBox.setBounds (wx, synthPanel.getY() + 10, 96, 28);
     }
 
     if (normal)
     {
-        kit.setBounds (drumPanel.getX() + 14, drumPanel.getY() + 32, 180, 92);
-        drumsBtn.setBounds (drumPanel.getX() + 204, drumPanel.getY() + 62, 88, 38);
+        {   // mixer: six vertical strips (S on top, M or ON / OFF underneath) and the four effect faders on the right
+            VFader* strips[6] = { &mixBass, &mixKick, &mixHat, &mixDel, &mixRev, &mixDist };
+            NButton* solos[6] = { &soloBass, &soloKick, &soloHat, &soloDel, &soloRev, &soloDist };
+            NButton* mutes[6] = { &muteBass, &muteKick, &muteHat, &onDel, &onRev, &onDist };
+            const int x0 = mixPanel.getX() + 16, y0 = mixPanel.getY() + 34, pitch = 92;
+            for (int i = 0; i < 6; ++i)
+            {
+                const int x = x0 + i * pitch;
+                solos[i]->setBounds (x + 22, y0, 42, 22);
+                strips[i]->setBounds (x, y0 + 26, 86, 142);
+                mutes[i]->setBounds (x + 22, y0 + 172, 42, 22);
+            }
+            HFader* f[4] = { &delTime, &revAmt, &distSend, &distColor };
+            const int fx = x0 + 6 * pitch + 30, fw = mixPanel.getRight() - 16 - fx;
+            for (int i = 0; i < 4; ++i) f[i]->setBounds (fx, y0 + 18 + i * 40, fw, 26);
+        }
 
         const int sx = setupPanel.getX(), sy = setupPanel.getY();
-        setupLabels[0] = { sx + 18, sy + 42, 46, 24 };
-        rootBox.setBounds (sx + 64, sy + 40, 90, 28);
-        setupLabels[1] = { sx + 170, sy + 42, 56, 24 };
-        scaleBox.setBounds (sx + 228, sy + 40, 170, 28);
-        setupLabels[2] = { sx + 414, sy + 42, 50, 24 };
-        waveBox.setBounds (sx + 466, sy + 40, 96, 28);
-        synthBtn.setBounds (sx + 14, sy + 78, 150, 40);
+        setupLabels[0] = { sx + 18, sy + 38, 56, 24 };
+        setupLabels[1] = { sx + 18, sy + 82, 56, 24 };
+        {
+            const int x0 = sx + 80, avail = setupPanel.getWidth() - 80 - 120;
+            const int rw = avail / 13, sw = avail / 6;
+            for (int i = 0; i < 13; ++i) rootBtns[(size_t) i]->setBounds (x0 + i * rw - 2, sy + 30, rw + 4, 38);
+            for (int i = 0; i < 6; ++i)  scaleBtns[(size_t) i]->setBounds (x0 + i * sw - 2, sy + 74, sw + 4, 38);
+        }
 
-        bpm.setBounds (sx + 740 - 100, sy + 8, 76, 116);
-        lockBtn.setBounds (sx + 740 - 100, sy + 100, 76, 22);
+        bpm.setBounds (setupPanel.getRight() - 100, sy + 8, 76, 116);
+        lockBtn.setBounds (setupPanel.getRight() - 100, sy + 100, 76, 22);
     }
 
     // --- LFO cards
@@ -410,15 +543,15 @@ void TB303Editor::paint (juce::Graphics& g) { g.fillAll (ui::bg); }
 void TB303Editor::paintContent (juce::Graphics& g)
 {
     g.fillAll (ui::bg);
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff0b3a36), 90.f, -80.f, juce::Colour (0x000b3a36), 730.f, -80.f, true));
+    g.setGradientFill (juce::ColourGradient (ui::rot (juce::Colour (0xff0b3a36)), 90.f, -80.f, ui::rot (juce::Colour (0x000b3a36)), 730.f, -80.f, true));
     g.fillAll();
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff101c52), (float) kW, (float) kH + 60.f, juce::Colour (0x00101c52), (float) kW - 600.f, (float) kH + 60.f, true));
+    g.setGradientFill (juce::ColourGradient (ui::rot (juce::Colour (0xff101c52)), (float) kW, (float) kH + 60.f, ui::rot (juce::Colour (0x00101c52)), (float) kW - 600.f, (float) kH + 60.f, true));
     g.fillAll();
 
     g.setColour (ui::fg);
-    g.setFont (ui::font (31.f, true));
-    g.drawText ("TB-303", 20, 8, 150, 42, juce::Justification::centredLeft);
-    ui::caption (g, "ACID LINE GENERATOR", { 176.f, 22.f, 360.f, 18.f }, ui::green, 9.5f, juce::Justification::centredLeft, 0.3f);
+    g.setFont (ui::font (28.f, true));
+    g.drawText ("BASSLINER303", 20, 8, 232, 42, juce::Justification::centredLeft);
+    ui::caption (g, "ACID LINE GENERATOR", { 260.f, 22.f, 290.f, 18.f }, ui::green, 9.5f, juce::Justification::centredLeft, 0.3f);
 
     {
         juce::AttributedString as;
@@ -446,18 +579,39 @@ void TB303Editor::paintContent (juce::Graphics& g)
 
     panelCard (genPanel, "GENERATOR", ui::green, ui::silver, true);
     panelCard (synthPanel, "SYNTH", ui::violet, ui::violet, true);
-    panelCard (drumPanel, "DRUMS", ui::cyan, ui::violet, false);
+    panelCard (mixPanel, "MIXER", ui::cyan, ui::violet, false);
     panelCard (setupPanel, "SETUP", ui::silver, ui::silver, false);
+
+    if (proc.styleIsReady())
+    {
+        const auto d = styleDotR.toFloat();
+        ui::glowRect (g, d, ui::green, 6.f, 1.f);
+        g.setColour (ui::green);
+        g.fillEllipse (d);
+    }
+    else { g.setColour (ui::muted.withAlpha (0.6f)); g.fillEllipse (styleDotR.toFloat()); }
 
     if (focus == fNone)
     {
         ui::caption (g, "ROOT",  setupLabels[0].toFloat(), ui::muted, 9.f);
         ui::caption (g, "SCALE", setupLabels[1].toFloat(), ui::muted, 9.f);
-        ui::caption (g, "WAVE",  setupLabels[2].toFloat(), ui::muted, 9.f);
         ui::caption (g, "MODULATION - 4 LFOS, 14 DESTINATIONS", lfoHeader.toFloat(), ui::muted, 9.5f, juce::Justification::centredLeft, 0.3f);
     }
     else if (! linkedLabel.isEmpty())
         ui::caption (g, "LINKED LFOS", linkedLabel.toFloat(), ui::muted, 9.5f, juce::Justification::centredLeft, 0.3f);
+    if (! waveLabel.isEmpty())
+        ui::caption (g, "WAVE", waveLabel.toFloat(), ui::muted, 9.f);
+}
+
+void TB303Editor::shiftColours (bool reset)
+{
+    static juce::Random rng;
+    if (reset) ui::setHue (0.f);                                   // triple-click on the roll: original colours
+    else       ui::setHue (ui::gHue + 0.10f + 0.25f * rng.nextFloat());      // click on the title: a good step round the wheel
+    laf.refresh();
+    sendLookAndFeelChange();
+    content.repaint();
+    repaint();
 }
 
 void TB303Editor::applyZoom (float z)
@@ -499,19 +653,36 @@ void TB303Editor::timerCallback()
     if (++tickCount == 3 || tickCount == 60)          // belt and braces: lay out again just after opening
         relayout();
 
+    if (rainbow && (tickCount % 4) == 0)                            // one full lap of the wheel in 60 s (updated 15x a second)
+    {
+        ui::setHue (ui::gHue + 4.f / 3600.f);
+        laf.refresh();
+        sendLookAndFeelChange();
+        content.repaint();
+    }
     roll.repaint();
 
     static int tick = 0;
     if ((++tick & 1) == 0)                                          // the rest animates at 30 fps
     {
-        for (auto* c : { &density, &feel, &filter, &envelope, &kit })
+        for (auto* c : { &groove, &filter, &envelope })
             if (c->isVisible()) c->repaint();
-        for (auto* f : { &bars, &variation, &volume, &bpm })
+        for (auto* f : { &bars, &variation, &bpm, &mixBass, &mixKick, &mixHat, &mixDel, &mixRev, &mixDist })
             if (f->isVisible()) f->repaint();
+        for (auto* h : { &delTime, &revAmt, &distSend, &distColor })
+            if (h->isVisible()) h->repaint();
+        if (notes.isVisible()) notes.repaint();
+        if (octave.isVisible()) octave.repaint();
         for (auto& l : lfos)
             if (l->isVisible()) { l->repaint(); l->rateDepth.repaint(); }
         content.repaint (infoR);
         generateBtn.repaint();
+    }
+
+    for (auto* b : { &onDel, &onRev, &onDist })                      // ON / OFF label follows the switch
+    {
+        const auto t = b->getToggleState() ? juce::String ("ON") : juce::String ("OFF");
+        if (b->getButtonText() != t) { b->setButtonText (t); b->repaint(); }
     }
 
     const bool running = runBtn.getToggleState();
@@ -522,5 +693,141 @@ void TB303Editor::timerCallback()
         runBtn.icon = running ? NButton::stop : NButton::play;
         runBtn.repaint();
     }
+    if ((tickCount % 6) == 0)
+    {
+        refreshSetupButtons();
+        if (stylePage.isVisible()) stylePage.refresh();
+        const auto n = proc.takeNotice();
+        if (n.has) showNotice (n);
+    }
     refreshUndo();
+}
+
+void TB303Editor::refreshSetupButtons()
+{
+    const int ri = (int) proc.apvts.getRawParameterValue ("root")->load(), si = (int) proc.apvts.getRawParameterValue ("scale")->load();
+    for (int i = 0; i < 13; ++i) rootBtns[(size_t) i]->setToggleState (i == ri, juce::dontSendNotification);
+    for (int i = 0; i < 6; ++i)  scaleBtns[(size_t) i]->setToggleState (i == si, juce::dontSendNotification);
+
+    const bool juke = proc.jukeIsOn();
+    const auto ht = juke ? juce::String ("REMOVE THIS LOOP") : juce::String ("PLAY SAVED LOOPS");
+    if (heartBtn.getButtonText() != ht) { heartBtn.setButtonText (ht); heartBtn.repaint(); }
+    heartBtn.setToggleState (juke, juce::dontSendNotification);
+    renBtn.setVisible (juke);
+    keysBtn.setToggleState (proc.keysActive(), juce::dontSendNotification);
+    styleBtn.setToggleState (proc.styleIsOn(), juce::dontSendNotification);
+}
+
+void TB303Editor::showNotice (const TB303Processor::Notice& n)
+{
+    std::vector<ModalOverlay::Btn> b;
+    if (! n.error) b.push_back ({ "GENERATE", [this] { proc.generatePattern(); refreshUndo(); }, false });
+    b.push_back ({ "OK", nullptr, true });
+    modal.show (n.title, {}, n.text, n.error, std::move (b));
+}
+
+void TB303Editor::askName (const juce::String& title, const juce::String& msg, std::function<void (juce::String)> done)
+{
+    auto* w = new juce::AlertWindow (title, msg, juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("n", "", "");
+    w->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<juce::AlertWindow> sw (w);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([sw, done] (int r)
+    {
+        if (r == 1 && sw != nullptr) done (sw->getTextEditorContents ("n"));
+    }), true);
+}
+
+void TB303Editor::keysPress()
+{
+    keysPage.open (proc.keysRootPc(), proc.keysPcMask(), proc.keysActive());
+}
+
+void TB303Editor::heartPress()
+{
+    if (proc.jukeIsOn())
+    {
+        const auto name = proc.jukeFileName();
+        modal.show ("REMOVE FROM SAVED LOOPS?", name,
+                    "The file is moved to the TB303Gen_DELETED folder (next to TB303 Gen) and the loops carry on with the next one.", false,
+                    { { "CANCEL", nullptr, false },
+                      { "REMOVE", [this] { const auto e = proc.jukeRemove(); if (e.isNotEmpty()) modal.show ("MOVE FAILED", {}, e, true, { { "OK", nullptr, true } }); refreshUndo(); }, true } });
+        return;
+    }
+    const auto e = proc.jukeStart();
+    if (e.isNotEmpty()) modal.show ("NO FILES YET", {}, e, false, { { "OK", nullptr, true } });
+    refreshUndo();
+}
+
+void TB303Editor::renamePress()
+{
+    askName ("RENAME", "This name is added to the end of the file name.", [this] (juce::String v)
+    {
+        const auto e = proc.jukeRename (v);
+        if (e.isNotEmpty()) modal.show ("RENAME FAILED", {}, e, true, { { "OK", nullptr, true } });
+    });
+}
+
+void TB303Editor::styleFromFiles (bool folder)
+{
+    chooser = std::make_unique<juce::FileChooser> (folder ? "Pick a folder of .mid files" : "Pick .mid files to learn from",
+                                                   proc.saveFolder().exists() ? proc.saveFolder() : juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                   "*.mid;*.midi");
+    juce::Component::SafePointer<TB303Editor> safe (this);
+    const int flags = folder ? (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories)
+                             : (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectMultipleItems);
+    chooser->launchAsync (flags, [safe, folder] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr) return;
+        const auto res = fc.getResults();
+        if (res.isEmpty()) return;
+        if (folder) safe->proc.learnFromFolder (res[0]);
+        else
+        {
+            juce::Array<juce::File> files;
+            for (auto& f : res) files.add (f);
+            safe->proc.learnFromFiles (files);
+        }
+    });
+}
+
+void TB303Editor::saveStylePress()
+{
+    if (! proc.styleLoaded()) return;
+    askName ("SAVE STYLE", "Name this style.", [this] (juce::String v)
+    {
+        juce::String clean;
+        for (auto ch : v.trim())
+            clean << (juce::CharacterFunctions::isLetterOrDigit (ch) || ch == '-' || ch == '_' ? juce::String::charToString (ch) : (ch == ' ' ? "-" : ""));
+        if (clean.isEmpty()) clean = "style";
+        proc.saveFolder().createDirectory();
+        if (! proc.saveStyleTo (proc.saveFolder().getChildFile ("style_" + clean.substring (0, 40) + ".txt")))
+            modal.show ("COULD NOT SAVE", {}, "Writing the style file failed.", true, { { "OK", nullptr, true } });
+    });
+}
+
+void TB303Editor::loadStylePress()
+{
+    const auto files = proc.savedStyleFiles();
+    if (files.isEmpty())
+    {
+        modal.show ("NO STYLES YET", {}, "No saved styles in your TB303 Gen folder.", false, { { "OK", nullptr, true } });
+        return;
+    }
+    juce::PopupMenu m;
+    m.addSectionHeader ("SAVED STYLES");
+    for (int i = 0; i < files.size(); ++i)
+        m.addItem (i + 1, files[i].getFileNameWithoutExtension().fromFirstOccurrenceOf ("style_", false, false));
+    juce::Component::SafePointer<TB303Editor> safe (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&stylePage), [safe, files] (int id)
+    {
+        if (safe == nullptr || id <= 0) return;
+        const auto f = files[id - 1];
+        if (safe->proc.loadStyleFrom (f))
+            safe->modal.show ("STYLE LOADED", f.getFileName(), safe->proc.styleSummary() + " STYLE is ON.",
+                              false, { { "GENERATE", [safe] { if (safe != nullptr) { safe->proc.generatePattern(); safe->refreshUndo(); } }, false }, { "OK", nullptr, true } });
+        else
+            safe->modal.show ("NOT A STYLE FILE", f.getFileName(), "This file could not be read as a style.", true, { { "OK", nullptr, true } });
+    });
 }
